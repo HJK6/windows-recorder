@@ -8,7 +8,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
+    "smoke": "bash test/smoke/run-smoke.sh",
     "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
