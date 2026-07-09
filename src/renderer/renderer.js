@@ -42,6 +42,7 @@ let audioTrack = null;
 let recorder = null;
 let chunks = [];
 let sessionId = null;
+let finishing = false; // true from STOP until the async save+teardown completes
 
 function genSessionId() {
   if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().slice(0, 8);
@@ -96,6 +97,7 @@ function applyEffect(effect) {
     case RS.EFFECTS.STOP:
       if (segStart != null) { timerBaseMs += performance.now() - segStart; segStart = null; }
       stopTicker();
+      finishing = true; // block Record until save + stream teardown finish
       break;
   }
 }
@@ -115,7 +117,7 @@ function render() {
     : state.status === RS.PAUSED ? 'paused' : '';
   el.muted.hidden = !state.muted;
 
-  el.record.disabled = RS.isActive(state);
+  el.record.disabled = RS.isActive(state) || finishing;
   el.stop.disabled = !RS.isActive(state);
 
   el.pause.hidden = state.status === RS.PAUSED;
@@ -180,6 +182,8 @@ async function onRecordingStopped() {
     el.output.textContent = `Save failed: ${err.message}`;
   }
   teardownStreams();
+  finishing = false; // save + teardown done; Record is safe to re-enable
+  render();
 }
 
 // ---- Record click: set up streams, then start the machine -----------------

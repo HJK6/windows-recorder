@@ -11,17 +11,22 @@
   // Only these two Chromium permissions are ever granted, and only to our app.
   const CAPTURE_PERMISSIONS = ['media', 'display-capture'];
 
-  function isSameOrigin(url, appOrigin) {
-    if (!url || !appOrigin) return false;
+  // Is the request coming from our own local app? A file:// desktop app is the
+  // only content that ever runs (CSP blocks remote), and Chromium serializes a
+  // file:// *origin* as the empty string or the literal "null" in the
+  // permission-CHECK path — so treat those as us. A real remote origin
+  // (https://…) does not match and is rejected. Missing appOrigin fails closed.
+  function isAppOrigin(url, appOrigin) {
+    if (!appOrigin) return false;               // misconfiguration: fail closed
+    if (!url || url === 'null') return true;    // local file:// page (empty/"null" origin)
     return String(url).startsWith(appOrigin);
   }
 
   // Grant a capture permission only for our own (file://) origin. Anything else
-  // — a different permission, or a remote/unknown origin — is denied.
+  // — a different permission, or a remote origin — is denied.
   function shouldGrantCapture(permission, requestingUrl, appOrigin) {
     if (!CAPTURE_PERMISSIONS.includes(permission)) return false;
-    if (!appOrigin) return true; // origin unknown on this Electron build: allow capture perms
-    return isSameOrigin(requestingUrl, appOrigin);
+    return isAppOrigin(requestingUrl, appOrigin);
   }
 
   // Parse a `reg query <key> /v Value` stdout blob -> 'Allow' | 'Deny' | 'unknown'.
@@ -42,7 +47,7 @@
 
   const api = {
     CAPTURE_PERMISSIONS,
-    isSameOrigin,
+    isAppOrigin,
     shouldGrantCapture,
     parseConsentValue,
     effectiveMicConsent,

@@ -22,6 +22,18 @@ test('denies capture from a non-file (remote) origin — no drive-by camera/mic'
   assert.equal(P.shouldGrantCapture('display-capture', 'http://10.0.0.5/', ORIGIN), false);
 });
 
+test('treats an empty / "null" origin as our own local file page (N1)', () => {
+  // The permission-CHECK path serializes a file:// origin as "" or "null".
+  assert.equal(P.shouldGrantCapture('media', 'null', ORIGIN), true);
+  assert.equal(P.shouldGrantCapture('media', '', ORIGIN), true);
+  assert.equal(P.shouldGrantCapture('display-capture', undefined, ORIGIN), true);
+});
+
+test('fails CLOSED when appOrigin is missing — no fail-open (N2)', () => {
+  assert.equal(P.shouldGrantCapture('media', 'file:///x', ''), false);
+  assert.equal(P.shouldGrantCapture('media', 'null', null), false);
+});
+
 test('parseConsentValue reads Allow/Deny and returns unknown otherwise', () => {
   assert.equal(P.parseConsentValue('    Value    REG_SZ    Allow'), 'Allow');
   assert.equal(P.parseConsentValue('HKCU\\...\\microphone\r\n    Value    REG_SZ    Deny\r\n'), 'Deny');
