@@ -10,7 +10,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "smoke": "bash test/smoke/run-smoke.sh",
-    "dist": "electron-builder --win nsis"
+    "pack": "electron-builder --win --dir",
+    "dist": "npm run pack && makensis -DSRC=\"$(pwd)/dist/win-unpacked\" -DOUTFILE=\"$(pwd)/dist/HFRecorder-Setup-$npm_package_version.exe\" build/installer-standalone.nsi"
   },
   "devDependencies": {
     "electron": "^31.7.7",
@@ -29,15 +30,9 @@
     },
     "win": {
       "target": [
-        "nsis"
+        "dir"
       ],
-      "artifactName": "HFRecorder-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh"
+      "signAndEditExecutable": false
     }
   }
 }

@@ -32,7 +32,8 @@ src/
   main/preload.js           narrow contextBridge API (window.hf.*)
   renderer/index.html       UI
   renderer/renderer.js      wires DOM + state machine -> MediaRecorder + tracks
-build/installer.nsh         NSIS: best-effort per-user mic consent pre-grant
+build/installer-standalone.nsi  NSIS installer (native makensis): per-user install,
+                            mic ConsentStore pre-grant, shortcuts, uninstaller
 test/recorderState.test.js  unit tests for the state machine
 docs/permission_model.md    the two-layer permission model, in detail
 ```
@@ -55,10 +56,17 @@ exercises the UI and logic but not the real Windows privacy layer.
 ## Build the Windows installer
 
 ```bash
-npm run dist    # electron-builder --win nsis -> dist/HFRecorder-Setup-<ver>.exe
+npm run dist    # electron-builder --win --dir  +  makensis build/installer-standalone.nsi
+                # -> dist/HFRecorder-Setup-<ver>.exe
 ```
 
-The installer is **unsigned** for the POC (expect a SmartScreen warning). Code
+`dist` packs the app (`electron-builder --dir`, no signing/rcedit) then wraps it
+with a hand-written NSIS script compiled by **native `makensis`** — so the whole
+build runs on Linux/WSL with **no wine**. Requires `makensis` (`apt install nsis`).
+
+The installer is **per-user** (no admin), **silent-install capable** (`/S`, for
+Intune/GPO fleet rollout), sets the mic ConsentStore pre-grant, and registers an
+uninstaller. It is **unsigned** for the POC (expect a SmartScreen warning) — code
 signing is a production follow-up.
 
 ## Permissions (short version)
