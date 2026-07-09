@@ -6,8 +6,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('hf', {
   getOutputDir: () => ipcRenderer.invoke('get-output-dir'),
-  // bytes: Uint8Array of the finished WebM blob.
-  saveRecording: (bytes) => ipcRenderer.invoke('save-recording', bytes),
+  // bytes: Uint8Array of the finished WebM blob; sessionId: short per-recording id.
+  saveRecording: (bytes, sessionId) => ipcRenderer.invoke('save-recording', bytes, sessionId),
   revealFile: (filePath) => ipcRenderer.invoke('reveal-file', filePath),
   openMicPrivacy: () => ipcRenderer.invoke('open-mic-privacy'),
   probeMicConsent: () => ipcRenderer.invoke('probe-mic-consent'),

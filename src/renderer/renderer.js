@@ -12,6 +12,7 @@
  */
 
 const RS = window.RecorderState;
+const AE = window.ApplyEffect;
 
 // ---- DOM refs -------------------------------------------------------------
 const el = {
@@ -40,6 +41,12 @@ let combinedStream = null;
 let audioTrack = null;
 let recorder = null;
 let chunks = [];
+let sessionId = null;
+
+function genSessionId() {
+  if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().slice(0, 8);
+  return Math.floor(Math.random() * 0xffffffff).toString(16);
+}
 
 // ---- Timer (accumulates recording time, excluding paused spans) -----------
 let timerBaseMs = 0;
@@ -59,38 +66,36 @@ function startTicker() {
 function stopTicker() { if (ticker) { clearInterval(ticker); ticker = null; } }
 
 // ---- Banner (OS-permission guidance) --------------------------------------
-function showBanner(msg) {
+// showMicButton: whether to offer the "open Windows mic settings" deep-link
+// (only relevant when the microphone is the problem).
+function showBanner(msg, showMicButton) {
   el.bannerText.textContent = msg;
+  el.openPrivacy.style.display = (showMicButton === false) ? 'none' : '';
   el.banner.classList.add('show');
 }
 function hideBanner() { el.banner.classList.remove('show'); }
 
-// ---- Effect application: machine effect string -> real side effect --------
+// ---- Effect application ---------------------------------------------------
+// Device actions (recorder + track) go through the shared, unit-tested
+// applyRecorderEffect; only renderer-local timer/chunk bookkeeping lives here.
 function applyEffect(effect) {
+  if (effect === RS.EFFECTS.START) { chunks = []; sessionId = genSessionId(); }
+
+  AE.applyRecorderEffect(effect, { recorder, audioTrack, timesliceMs: 1000 });
+
   switch (effect) {
     case RS.EFFECTS.START:
-      chunks = [];
-      recorder.start(1000); // 1s timeslice so pause flushes cleanly
       timerBaseMs = 0; segStart = performance.now(); startTicker();
       break;
     case RS.EFFECTS.PAUSE:
-      recorder.pause();
       timerBaseMs += performance.now() - segStart; segStart = null;
       break;
     case RS.EFFECTS.RESUME:
-      recorder.resume();
       segStart = performance.now();
       break;
     case RS.EFFECTS.STOP:
       if (segStart != null) { timerBaseMs += performance.now() - segStart; segStart = null; }
       stopTicker();
-      recorder.stop(); // triggers onstop -> save
-      break;
-    case RS.EFFECTS.AUDIO_ENABLE:
-      if (audioTrack) audioTrack.enabled = true;
-      break;
-    case RS.EFFECTS.AUDIO_DISABLE:
-      if (audioTrack) audioTrack.enabled = false;
       break;
   }
 }
@@ -127,9 +132,14 @@ function render() {
 // ---- Stream setup / teardown ----------------------------------------------
 async function setupStreams() {
   // Screen video (primary display, served by the main process handler).
-  screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  // Tag which capture stage failed so the error message points at the right layer.
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch (err) { err.captureStage = 'screen'; throw err; }
   // Microphone audio.
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) { err.captureStage = 'mic'; throw err; }
 
   const videoTrack = screenStream.getVideoTracks()[0];
   audioTrack = micStream.getAudioTracks()[0];
@@ -162,7 +172,7 @@ async function onRecordingStopped() {
   chunks = [];
   const bytes = new Uint8Array(await blob.arrayBuffer());
   try {
-    const res = await window.hf.saveRecording(bytes);
+    const res = await window.hf.saveRecording(bytes, sessionId);
     const kb = Math.round(res.bytes / 1024);
     el.output.innerHTML = `Saved <a id="reveal">${res.path}</a> (${kb} KB)`;
     document.getElementById('reveal').onclick = () => window.hf.revealFile(res.path);
@@ -187,17 +197,23 @@ async function onRecord() {
 }
 
 async function explainCaptureFailure(err) {
-  // Distinguish the two permission layers for the user.
-  let consent = { supported: false, value: 'unknown' };
-  try { consent = await window.hf.probeMicConsent(); } catch (_) {}
-  if (consent.supported && consent.value === 'Deny') {
-    showBanner('Windows is blocking microphone access for desktop apps. '
-      + 'Open Settings and allow microphone access, then try again.');
-  } else if (err && (err.name === 'NotAllowedError' || err.name === 'NotFoundError')) {
-    showBanner(`Capture was blocked (${err.name}). Check Windows microphone privacy `
-      + 'settings and that a microphone is connected, then try again.');
+  const stage = err && err.captureStage;
+  if (stage === 'mic') {
+    // Only the mic layer is gated by Windows privacy — probe + guide there.
+    let consent = { supported: false, value: 'unknown' };
+    try { consent = await window.hf.probeMicConsent(); } catch (_) {}
+    if (consent.supported && consent.value === 'Deny') {
+      showBanner('Windows is blocking microphone access for desktop apps. '
+        + 'Open Settings and allow microphone access, then try again.', true);
+    } else {
+      showBanner(`Microphone capture was blocked (${err.name || 'error'}). Check Windows `
+        + 'microphone privacy settings and that a microphone is connected, then try again.', true);
+    }
+  } else if (stage === 'screen') {
+    showBanner(`Screen capture could not start (${err.name || 'error'}). Try again; `
+      + 'if it persists, restart the app.', false);
   } else {
-    showBanner(`Could not start capture: ${err ? err.message : 'unknown error'}`);
+    showBanner(`Could not start capture: ${err ? err.message : 'unknown error'}`, false);
   }
 }
 

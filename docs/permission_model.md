@@ -41,15 +41,19 @@ though layer 1 granted. Screen capture (`getDisplayMedia`) is **not** gated here
 
 ### What the POC does about layer 2
 
-- **Installer (best effort):** `build/installer.nsh` writes the per-user (HKCU)
-  microphone ConsentStore `Value = Allow` at install time so a fresh install can
-  record without the user hunting through Settings. This is **best effort only**
-  — it is a semi-undocumented mechanism, a Windows update can reset it, and it
-  cannot set device-wide or policy-managed state.
-- **Runtime detect + guide:** on startup and on any capture failure, the app
-  probes `ConsentStore\microphone\Value` (via `reg query`) and, if denied, shows
-  an actionable banner that deep-links to `ms-settings:privacy-microphone`. So
-  even if the pre-grant no-ops, capture never fails silently.
+- **Installer (best effort):** `build/installer-standalone.nsi` writes the
+  per-user (HKCU) microphone ConsentStore `Value = Allow` **and**
+  `NonPackaged\Value = Allow` at install time so a fresh install can record
+  without the user hunting through Settings. This is **best effort only** — it is
+  a semi-undocumented mechanism, a Windows update can reset it, and it cannot set
+  device-wide or policy-managed state.
+- **Runtime detect + guide:** on startup and on any *microphone* capture failure,
+  the app probes **both** `ConsentStore\microphone\Value` and
+  `ConsentStore\microphone\NonPackaged\Value` (via `reg query`) — a desktop app
+  needs both to be `Allow`, so either `Deny` is treated as denied. If denied it
+  shows an actionable banner that deep-links to `ms-settings:privacy-microphone`.
+  A *screen*-capture failure shows a screen-specific message (no mic guidance).
+  So even if the pre-grant no-ops, capture never fails silently or misdirects.
 
 ## Production / fleet answer (thousands of managed desktops)
 

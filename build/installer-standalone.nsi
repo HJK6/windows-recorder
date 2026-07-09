@@ -18,7 +18,9 @@ Unicode true
 !define APPNAME "HFRecorder"
 !define DISPLAYNAME "HF Recorder"
 !define COMPANY "Vamshi Gujju"
-!define VERSION "0.1.0"
+!ifndef VERSION
+  !define VERSION "0.1.0"
+!endif
 !ifndef SRC
   !define SRC "dist/win-unpacked"
 !endif

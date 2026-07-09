@@ -17,6 +17,8 @@ const { app, BrowserWindow, session, desktopCapturer, ipcMain, shell } = require
 const path = require('node:path');
 const fs = require('node:fs');
 const { execFile } = require('node:child_process');
+const { wireCapturePermissions } = require('./capture-session');
+const Permissions = require('../shared/permissions');
 
 const OUTPUT_DIR = () => path.join(app.getPath('documents'), 'HFRecorder');
 
@@ -34,24 +36,34 @@ function timestamp() {
 }
 
 // ---- Windows OS microphone-consent probe (best effort) --------------------
-// Reads HKCU ConsentStore\microphone\Value. "Allow" | "Deny" | unknown.
-// Non-Windows (WSLg dev) returns supported:false so dev is never blocked.
-function probeWindowsMicConsent() {
+// A desktop (unpackaged) app's mic is gated by BOTH the global consent
+// (microphone\Value) AND the desktop-apps consent (microphone\NonPackaged\Value)
+// — either 'Deny' blocks capture. We read both and combine. Non-Windows (WSLg
+// dev) returns supported:false so dev is never blocked.
+const MIC_CONSENT_KEY =
+  'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
+
+function queryConsentValue(key) {
   return new Promise((resolve) => {
-    if (process.platform !== 'win32') {
-      resolve({ supported: false, value: 'unknown', reason: 'not win32' });
-      return;
-    }
-    const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
     execFile('reg', ['query', key, '/v', 'Value'], { windowsHide: true }, (err, stdout) => {
-      if (err) {
-        resolve({ supported: true, value: 'unknown', reason: 'reg query failed' });
-        return;
-      }
-      const m = /Value\s+REG_SZ\s+(\w+)/i.exec(stdout || '');
-      resolve({ supported: true, value: m ? m[1] : 'unknown' });
+      resolve(err ? 'unknown' : Permissions.parseConsentValue(stdout));
     });
   });
+}
+
+function probeWindowsMicConsent() {
+  if (process.platform !== 'win32') {
+    return Promise.resolve({ supported: false, value: 'unknown', reason: 'not win32' });
+  }
+  return Promise.all([
+    queryConsentValue(MIC_CONSENT_KEY),
+    queryConsentValue(MIC_CONSENT_KEY + '\\NonPackaged'),
+  ]).then(([globalValue, nonPackaged]) => ({
+    supported: true,
+    value: Permissions.effectiveMicConsent(globalValue, nonPackaged),
+    global: globalValue,
+    nonPackaged,
+  }));
 }
 
 function createWindow() {
@@ -64,7 +76,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
   win.setMenuBarVisibility(false);
@@ -72,36 +84,14 @@ function createWindow() {
   return win;
 }
 
-function wireCapturePermissions() {
-  const ses = session.defaultSession;
-
-  // In-app permission layer: grant media + display-capture for our own app.
-  ses.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(permission === 'media' || permission === 'display-capture' || permission === 'mediaKeySystem');
-  });
-  ses.setPermissionCheckHandler((_wc, permission) => {
-    return permission === 'media' || permission === 'display-capture';
-  });
-
-  // getDisplayMedia() -> hand back the primary screen. Mic is captured
-  // separately via getUserMedia in the renderer and merged there.
-  ses.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      if (!sources.length) {
-        callback({}); // no source -> renderer sees a failed getDisplayMedia
-        return;
-      }
-      callback({ video: sources[0] }); // audio omitted: no system-audio capture in v1
-    }).catch(() => callback({}));
-  }, { useSystemPicker: false });
-}
-
 function wireIpc() {
   ipcMain.handle('get-output-dir', () => OUTPUT_DIR());
 
-  ipcMain.handle('save-recording', async (_evt, bytes) => {
+  ipcMain.handle('save-recording', async (_evt, bytes, sessionId) => {
     const dir = ensureOutputDir();
-    const file = path.join(dir, `HFRecorder-${timestamp()}.webm`);
+    // session id + timestamp so two stops in the same second never collide.
+    const sid = String(sessionId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'session';
+    const file = path.join(dir, `HFRecorder-${timestamp()}-${sid}.webm`);
     const buf = Buffer.from(bytes); // bytes: Uint8Array transferred from renderer
     await fs.promises.writeFile(file, buf);
     return { path: file, bytes: buf.length };
@@ -120,7 +110,7 @@ function wireIpc() {
 }
 
 app.whenReady().then(() => {
-  wireCapturePermissions();
+  wireCapturePermissions(session.defaultSession, desktopCapturer);
   wireIpc();
   createWindow();
   app.on('activate', () => {

@@ -3,22 +3,19 @@
 /*
  * Headless capture smoke harness (Electron main).
  *
- * Proves the end-to-end capture->merge->file path without real hardware:
- * Chromium fake devices provide a synthetic camera video + mic audio track;
- * the page composes them into ONE MediaStream, records through a
- * pause/resume + mute/unmute cycle, and writes the merged WebM. run-smoke.sh
- * then asserts with ffprobe that the output has exactly 1 video + 1 audio
- * track — i.e. the merge worked and pause/mute didn't corrupt the container.
- *
- * This is test-only code; it does not import or alter production main.js. It
- * uses a fake CAMERA (not getDisplayMedia) because the screen path needs a real
- * desktop and is validated separately on Windows; the merge/mux/control logic
- * proven here is identical.
+ * Exercises the SHIPPED main-process capture wiring (wireCapturePermissions
+ * from src/main/capture-session.js, incl. setDisplayMediaRequestHandler) and,
+ * in the page, the SHIPPED state machine + effect layer (recorderState +
+ * applyEffect). Chromium fake devices remove the hardware dependency; the page
+ * tries real getDisplayMedia (through the production handler) and falls back to
+ * a fake camera if xvfb can't screen-capture. run-smoke.sh then asserts with
+ * ffprobe that the merged WebM has exactly 1 video + 1 audio track.
  */
 
-const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { app, BrowserWindow, session, desktopCapturer, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { wireCapturePermissions } = require('../../src/main/capture-session');
 
 app.commandLine.appendSwitch('use-fake-device-for-media-stream');
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
@@ -29,14 +26,14 @@ app.disableHardwareAcceleration();
 const OUT = process.env.HF_SMOKE_OUT || path.join(app.getPath('temp'), 'hf-smoke.webm');
 
 app.whenReady().then(() => {
-  session.defaultSession.setPermissionRequestHandler((_wc, _p, cb) => cb(true));
+  // Real production permission + display-media wiring.
+  wireCapturePermissions(session.defaultSession, desktopCapturer);
 
   ipcMain.handle('smoke-save', async (_e, bytes) => {
     await fs.promises.writeFile(OUT, Buffer.from(bytes));
     return OUT;
   });
   ipcMain.on('smoke-done', (_e, ok) => {
-    // small delay so the invoke() write settles
     setTimeout(() => app.exit(ok ? 0 : 1), 100);
   });
 
@@ -46,6 +43,5 @@ app.whenReady().then(() => {
   });
   win.loadFile(path.join(__dirname, 'smoke-page.html'));
 
-  // Hard timeout so a hung capture fails the smoke instead of hanging CI.
   setTimeout(() => { console.error('SMOKE-TIMEOUT'); app.exit(2); }, 20000);
 });
