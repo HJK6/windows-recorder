@@ -1,0 +1,223 @@
+'use strict';
+
+/*
+ * Renderer: wires the DOM controls to the pure state machine (window.RecorderState)
+ * and applies the machine's effects to a real MediaRecorder + microphone track.
+ *
+ * Capture model (v1): screen video (getDisplayMedia) + mic audio (getUserMedia)
+ * are composed into ONE MediaStream and recorded by ONE MediaRecorder, so the
+ * output WebM is already merged (no post-hoc mux, no A/V-sync drift).
+ *   - Pause/Resume  -> recorder.pause()/resume()  (both tracks)
+ *   - Mute/Unmute   -> audioTrack.enabled = false/true (audio only; video rolls)
+ */
+
+const RS = window.RecorderState;
+
+// ---- DOM refs -------------------------------------------------------------
+const el = {
+  dot: document.getElementById('dot'),
+  stateLabel: document.getElementById('state-label'),
+  timer: document.getElementById('timer'),
+  muted: document.getElementById('muted'),
+  record: document.getElementById('record'),
+  pause: document.getElementById('pause'),
+  resume: document.getElementById('resume'),
+  mute: document.getElementById('mute'),
+  unmute: document.getElementById('unmute'),
+  stop: document.getElementById('stop'),
+  banner: document.getElementById('banner'),
+  bannerText: document.getElementById('banner-text'),
+  openPrivacy: document.getElementById('open-privacy'),
+  output: document.getElementById('output'),
+  preview: document.getElementById('preview'),
+};
+
+// ---- Runtime capture objects ----------------------------------------------
+let state = RS.initialState();
+let screenStream = null;
+let micStream = null;
+let combinedStream = null;
+let audioTrack = null;
+let recorder = null;
+let chunks = [];
+
+// ---- Timer (accumulates recording time, excluding paused spans) -----------
+let timerBaseMs = 0;
+let segStart = null;
+let ticker = null;
+const fmt = (ms) => {
+  const s = Math.floor(ms / 1000);
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+};
+const elapsed = () => timerBaseMs + (segStart != null ? performance.now() - segStart : 0);
+function startTicker() {
+  stopTicker();
+  ticker = setInterval(() => { el.timer.textContent = fmt(elapsed()); }, 250);
+}
+function stopTicker() { if (ticker) { clearInterval(ticker); ticker = null; } }
+
+// ---- Banner (OS-permission guidance) --------------------------------------
+function showBanner(msg) {
+  el.bannerText.textContent = msg;
+  el.banner.classList.add('show');
+}
+function hideBanner() { el.banner.classList.remove('show'); }
+
+// ---- Effect application: machine effect string -> real side effect --------
+function applyEffect(effect) {
+  switch (effect) {
+    case RS.EFFECTS.START:
+      chunks = [];
+      recorder.start(1000); // 1s timeslice so pause flushes cleanly
+      timerBaseMs = 0; segStart = performance.now(); startTicker();
+      break;
+    case RS.EFFECTS.PAUSE:
+      recorder.pause();
+      timerBaseMs += performance.now() - segStart; segStart = null;
+      break;
+    case RS.EFFECTS.RESUME:
+      recorder.resume();
+      segStart = performance.now();
+      break;
+    case RS.EFFECTS.STOP:
+      if (segStart != null) { timerBaseMs += performance.now() - segStart; segStart = null; }
+      stopTicker();
+      recorder.stop(); // triggers onstop -> save
+      break;
+    case RS.EFFECTS.AUDIO_ENABLE:
+      if (audioTrack) audioTrack.enabled = true;
+      break;
+    case RS.EFFECTS.AUDIO_DISABLE:
+      if (audioTrack) audioTrack.enabled = false;
+      break;
+  }
+}
+
+function dispatch(type) {
+  const out = RS.reduce(state, { type });
+  for (const e of out.effects) applyEffect(e);
+  state = out.state;
+  render();
+}
+
+// ---- Render UI from state -------------------------------------------------
+function render() {
+  const labels = { [RS.IDLE]: 'Idle', [RS.RECORDING]: 'Recording', [RS.PAUSED]: 'Paused' };
+  el.stateLabel.textContent = labels[state.status];
+  el.dot.className = state.status === RS.RECORDING ? 'recording'
+    : state.status === RS.PAUSED ? 'paused' : '';
+  el.muted.hidden = !state.muted;
+
+  el.record.disabled = RS.isActive(state);
+  el.stop.disabled = !RS.isActive(state);
+
+  el.pause.hidden = state.status === RS.PAUSED;
+  el.pause.disabled = !RS.canPause(state);
+  el.resume.hidden = state.status !== RS.PAUSED;
+  el.resume.disabled = !RS.canResume(state);
+
+  el.mute.hidden = state.muted;
+  el.mute.disabled = !RS.canMute(state);
+  el.unmute.hidden = !state.muted;
+  el.unmute.disabled = !RS.canUnmute(state);
+}
+
+// ---- Stream setup / teardown ----------------------------------------------
+async function setupStreams() {
+  // Screen video (primary display, served by the main process handler).
+  screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  // Microphone audio.
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+  const videoTrack = screenStream.getVideoTracks()[0];
+  audioTrack = micStream.getAudioTracks()[0];
+  combinedStream = new MediaStream([videoTrack, audioTrack]);
+
+  // If the user stops sharing via the OS, stop the recording gracefully.
+  videoTrack.addEventListener('ended', () => { if (RS.isActive(state)) dispatch('STOP'); });
+
+  el.preview.srcObject = combinedStream;
+  el.preview.classList.add('show');
+
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    .find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+  recorder = new MediaRecorder(combinedStream, { mimeType: mime });
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = onRecordingStopped;
+}
+
+function teardownStreams() {
+  for (const s of [screenStream, micStream]) {
+    if (s) s.getTracks().forEach((t) => t.stop());
+  }
+  screenStream = micStream = combinedStream = audioTrack = recorder = null;
+  el.preview.srcObject = null;
+  el.preview.classList.remove('show');
+}
+
+async function onRecordingStopped() {
+  const blob = new Blob(chunks, { type: 'video/webm' });
+  chunks = [];
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  try {
+    const res = await window.hf.saveRecording(bytes);
+    const kb = Math.round(res.bytes / 1024);
+    el.output.innerHTML = `Saved <a id="reveal">${res.path}</a> (${kb} KB)`;
+    document.getElementById('reveal').onclick = () => window.hf.revealFile(res.path);
+  } catch (err) {
+    el.output.textContent = `Save failed: ${err.message}`;
+  }
+  teardownStreams();
+}
+
+// ---- Record click: set up streams, then start the machine -----------------
+async function onRecord() {
+  hideBanner();
+  el.output.textContent = '';
+  try {
+    await setupStreams();
+  } catch (err) {
+    teardownStreams();
+    await explainCaptureFailure(err);
+    return;
+  }
+  dispatch('START');
+}
+
+async function explainCaptureFailure(err) {
+  // Distinguish the two permission layers for the user.
+  let consent = { supported: false, value: 'unknown' };
+  try { consent = await window.hf.probeMicConsent(); } catch (_) {}
+  if (consent.supported && consent.value === 'Deny') {
+    showBanner('Windows is blocking microphone access for desktop apps. '
+      + 'Open Settings and allow microphone access, then try again.');
+  } else if (err && (err.name === 'NotAllowedError' || err.name === 'NotFoundError')) {
+    showBanner(`Capture was blocked (${err.name}). Check Windows microphone privacy `
+      + 'settings and that a microphone is connected, then try again.');
+  } else {
+    showBanner(`Could not start capture: ${err ? err.message : 'unknown error'}`);
+  }
+}
+
+// ---- Wire buttons ---------------------------------------------------------
+el.record.onclick = onRecord;
+el.pause.onclick = () => dispatch('PAUSE');
+el.resume.onclick = () => dispatch('RESUME');
+el.mute.onclick = () => dispatch('MUTE');
+el.unmute.onclick = () => dispatch('UNMUTE');
+el.stop.onclick = () => dispatch('STOP');
+el.openPrivacy.onclick = () => window.hf.openMicPrivacy();
+
+// ---- Startup: pre-flight the OS mic-consent layer -------------------------
+(async function init() {
+  render();
+  try {
+    const consent = await window.hf.probeMicConsent();
+    if (consent.supported && consent.value === 'Deny') {
+      showBanner('Windows microphone access for desktop apps is currently OFF. '
+        + 'Recording audio will fail until it is enabled.');
+    }
+  } catch (_) { /* non-fatal */ }
+})();

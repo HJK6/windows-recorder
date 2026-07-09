@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:;" />
+  <title>HF Recorder</title>
+  <style>
+    :root { color-scheme: light dark; font-family: "Segoe UI", system-ui, sans-serif; }
+    body { margin: 0; padding: 20px; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { color: #888; font-size: 12px; margin: 0 0 16px; }
+    #status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; padding: 10px 12px; border-radius: 8px;
+      background: rgba(127,127,127,0.12); margin-bottom: 14px;
+    }
+    #dot { width: 12px; height: 12px; border-radius: 50%; background: #888; flex: none; }
+    #dot.recording { background: #e5484d; animation: pulse 1.2s infinite; }
+    #dot.paused { background: #f5a623; }
+    #dot.muted-badge { }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    #timer { font-variant-numeric: tabular-nums; font-weight: 600; }
+    #muted { color: #f5a623; font-size: 12px; font-weight: 600; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    button {
+      font-size: 14px; padding: 9px 14px; border-radius: 8px; border: 1px solid rgba(127,127,127,0.4);
+      background: rgba(127,127,127,0.10); cursor: pointer;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: #e5484d; border-color: #e5484d; color: #fff; }
+    #banner {
+      display: none; padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+      background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.5); margin-bottom: 14px;
+    }
+    #banner.show { display: block; }
+    #banner button { margin-top: 8px; }
+    #output { font-size: 12px; color: #888; word-break: break-all; }
+    #output a { color: #4a90e2; cursor: pointer; text-decoration: underline; }
+    video { width: 100%; border-radius: 8px; background: #000; margin-top: 8px; display: none; }
+    video.show { display: block; }
+  </style>
+</head>
+<body>
+  <h1>HF Recorder</h1>
+  <p class="sub">Screen + microphone recorder — POC (records locally, no upload)</p>
+
+  <div id="status">
+    <span id="dot"></span>
+    <span id="state-label">Idle</span>
+    <span id="timer">00:00</span>
+    <span id="muted" hidden>· MIC MUTED</span>
+  </div>
+
+  <div id="banner">
+    <div id="banner-text"></div>
+    <button id="open-privacy">Open Windows microphone settings</button>
+  </div>
+
+  <div class="controls">
+    <button id="record" class="primary">● Record</button>
+    <button id="pause" disabled>❚❚ Pause</button>
+    <button id="resume" disabled hidden>▶ Resume</button>
+    <button id="mute" disabled>🔇 Mute mic</button>
+    <button id="unmute" disabled hidden>🔊 Unmute mic</button>
+    <button id="stop" disabled>■ Stop</button>
+  </div>
+
+  <video id="preview" muted autoplay playsinline></video>
+
+  <div id="output"></div>
+
+  <script src="../shared/recorderState.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+'use strict';
+
+/*
+ * Main process for HF Recorder.
+ *
+ * Responsibilities:
+ *  - Create the window (contextIsolation on, nodeIntegration off).
+ *  - Auto-grant the app's own Chromium capture permissions (trusted first-party
+ *    app) — this is the *in-app* permission layer.
+ *  - Serve the screen source to getDisplayMedia via setDisplayMediaRequestHandler.
+ *  - Save finished recordings to the per-user output folder.
+ *  - Best-effort probe of the *Windows OS* microphone-consent layer so the
+ *    renderer can guide the user when the OS (not the app) is blocking capture.
+ */
+
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, shell } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const { execFile } = require('node:child_process');
+
+const OUTPUT_DIR = () => path.join(app.getPath('documents'), 'HFRecorder');
+
+function ensureOutputDir() {
+  const dir = OUTPUT_DIR();
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function timestamp() {
+  // YYYYMMDD-HHMMSS in local time, filename-safe.
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+// ---- Windows OS microphone-consent probe (best effort) --------------------
+// Reads HKCU ConsentStore\microphone\Value. "Allow" | "Deny" | unknown.
+// Non-Windows (WSLg dev) returns supported:false so dev is never blocked.
+function probeWindowsMicConsent() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve({ supported: false, value: 'unknown', reason: 'not win32' });
+      return;
+    }
+    const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
+    execFile('reg', ['query', key, '/v', 'Value'], { windowsHide: true }, (err, stdout) => {
+      if (err) {
+        resolve({ supported: true, value: 'unknown', reason: 'reg query failed' });
+        return;
+      }
+      const m = /Value\s+REG_SZ\s+(\w+)/i.exec(stdout || '');
+      resolve({ supported: true, value: m ? m[1] : 'unknown' });
+    });
+  });
+}
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 640,
+    height: 560,
+    resizable: true,
+    title: 'HF Recorder',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  win.setMenuBarVisibility(false);
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  return win;
+}
+
+function wireCapturePermissions() {
+  const ses = session.defaultSession;
+
+  // In-app permission layer: grant media + display-capture for our own app.
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'display-capture' || permission === 'mediaKeySystem');
+  });
+  ses.setPermissionCheckHandler((_wc, permission) => {
+    return permission === 'media' || permission === 'display-capture';
+  });
+
+  // getDisplayMedia() -> hand back the primary screen. Mic is captured
+  // separately via getUserMedia in the renderer and merged there.
+  ses.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      if (!sources.length) {
+        callback({}); // no source -> renderer sees a failed getDisplayMedia
+        return;
+      }
+      callback({ video: sources[0] }); // audio omitted: no system-audio capture in v1
+    }).catch(() => callback({}));
+  }, { useSystemPicker: false });
+}
+
+function wireIpc() {
+  ipcMain.handle('get-output-dir', () => OUTPUT_DIR());
+
+  ipcMain.handle('save-recording', async (_evt, bytes) => {
+    const dir = ensureOutputDir();
+    const file = path.join(dir, `HFRecorder-${timestamp()}.webm`);
+    const buf = Buffer.from(bytes); // bytes: Uint8Array transferred from renderer
+    await fs.promises.writeFile(file, buf);
+    return { path: file, bytes: buf.length };
+  });
+
+  ipcMain.handle('reveal-file', (_evt, filePath) => {
+    if (filePath) shell.showItemInFolder(filePath);
+  });
+
+  ipcMain.handle('open-mic-privacy', () => {
+    // Deep-link straight to the Windows microphone privacy page.
+    shell.openExternal('ms-settings:privacy-microphone');
+  });
+
+  ipcMain.handle('probe-mic-consent', () => probeWindowsMicConsent());
+}
+
+app.whenReady().then(() => {
+  wireCapturePermissions();
+  wireIpc();
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

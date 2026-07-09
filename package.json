@@ -1,0 +1,42 @@
+{
+  "name": "hf-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HF Recorder — screen + microphone desktop recorder (Calabrio replacement POC)",
+  "main": "src/main/main.js",
+  "author": "Vamshi Gujju",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.healthfirst.hfrecorder",
+    "productName": "HFRecorder",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "HFRecorder-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
+    }
+  }
+}
