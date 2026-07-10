@@ -16,7 +16,7 @@ the `hf-recorder__upload_auth_permissions_arch` spec in Triforce memory).
   - **Pause** halts the whole recording (video + audio); **Resume** continues.
   - **Mute** silences the microphone while **video keeps recording**
     (`audioTrack.enabled = false`); **Unmute** restores audio.
-- Saves to `%USERPROFILE%\Documents\HFRecorder\HFRecorder-<timestamp>.webm`.
+- Saves to `%USERPROFILE%\Documents\HFRecorder\HFRecorder-<timestamp>-<id>.webm`.
 
 Not in v1: webcam, system/loopback audio, real call-audio, automatic/triggered
 recording, upload, code signing. See the spec's Non-Goals.
@@ -26,15 +26,18 @@ recording, upload, code signing. See the spec's Non-Goals.
 ```
 src/
   shared/recorderState.js   pure state machine (record/pause/resume/mute/unmute/stop)
-                            — emits "effects" the renderer applies to real objects
-  main/main.js              Electron main: permission handlers, screen source,
-                            file save, Windows mic-consent probe
+                            — emits "effects" the renderer + smoke apply to real objects
+  shared/applyEffect.js     shipped effect layer: effect -> MediaRecorder/track action
+  shared/permissions.js     pure permission logic (capture-grant + two-key mic consent)
+  main/main.js              Electron main: window, IPC, file save, Windows mic-consent probe
+  main/capture-session.js   permission + getDisplayMedia wiring (shared with the smoke)
   main/preload.js           narrow contextBridge API (window.hf.*)
   renderer/index.html       UI
   renderer/renderer.js      wires DOM + state machine -> MediaRecorder + tracks
 build/installer-standalone.nsi  NSIS installer (native makensis): per-user install,
                             mic ConsentStore pre-grant, shortcuts, uninstaller
-test/recorderState.test.js  unit tests for the state machine
+test/*.test.js              21 unit tests: state machine, permissions, effect layer
+test/smoke/                 headless fake-device capture smoke (xvfb + ffprobe)
 docs/permission_model.md    the two-layer permission model, in detail
 ```
 
@@ -45,7 +48,8 @@ are unit-tested without Electron or a real recorder.
 
 ```bash
 npm install
-npm test        # runs the state-machine unit tests (pure Node)
+npm test        # 21 unit tests (state machine, permissions, effect layer) — pure Node
+npm run smoke   # headless fake-device capture smoke (Linux: needs xvfb + ffmpeg)
 npm start       # launches the Electron app
 ```
 
@@ -53,21 +57,29 @@ Real screen/microphone capture and the Windows permission behavior must be
 validated on Windows (see docs/permission_model.md). A WSLg/Linux dev run
 exercises the UI and logic but not the real Windows privacy layer.
 
-## Build the Windows installer
+## Build the Windows installer (the `.exe`)
+
+Prerequisites: **Node 20+** and **`makensis`** (`sudo apt install nsis` on
+Linux/WSL; already on most Windows NSIS installs). No wine required.
 
 ```bash
-npm run dist    # electron-builder --win --dir  +  makensis build/installer-standalone.nsi
-                # -> dist/HFRecorder-Setup-<ver>.exe
+npm install            # once, to fetch electron + electron-builder
+npm run dist           # -> dist/HFRecorder-Setup-<version>.exe   (~106 MB)
 ```
 
-`dist` packs the app (`electron-builder --dir`, no signing/rcedit) then wraps it
-with a hand-written NSIS script compiled by **native `makensis`** — so the whole
-build runs on Linux/WSL with **no wine**. Requires `makensis` (`apt install nsis`).
+`npm run dist` runs two steps: `electron-builder --win --dir` packs the app into
+`dist/win-unpacked/` (no signing/rcedit, so no wine), then **native `makensis`**
+compiles `build/installer-standalone.nsi` around it. The `<version>` comes from
+`package.json`.
 
-The installer is **per-user** (no admin), **silent-install capable** (`/S`, for
-Intune/GPO fleet rollout), sets the mic ConsentStore pre-grant, and registers an
-uninstaller. It is **unsigned** for the POC (expect a SmartScreen warning) — code
-signing is a production follow-up.
+The resulting installer is **per-user** (no admin), **silent-install capable**
+(`HFRecorder-Setup-<ver>.exe /S`, for Intune/GPO fleet rollout), sets the mic
+ConsentStore pre-grant, creates Desktop + Start-menu shortcuts, and registers an
+uninstaller in Add/Remove Programs. It is **unsigned** for the POC (expect a
+SmartScreen "More info → Run anyway") — code signing is a production follow-up.
+
+To uninstall: Add/Remove Programs → "HF Recorder", or run
+`%LOCALAPPDATA%\Programs\HFRecorder\Uninstall.exe` (`/S` for silent).
 
 ## Permissions (short version)
 
