@@ -172,9 +172,11 @@ function teardownStreams() {
 async function onRecordingStopped() {
   const blob = new Blob(chunks, { type: 'video/webm' });
   chunks = [];
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  // Pass the raw ArrayBuffer: it is a primary structured-clone type and crosses
+  // the contextBridge boundary more reliably than a typed-array view.
+  const buffer = await blob.arrayBuffer();
   try {
-    const res = await window.hf.saveRecording(bytes, sessionId);
+    const res = await window.hf.saveRecording(buffer, sessionId);
     const kb = Math.round(res.bytes / 1024);
     el.output.innerHTML = `Saved <a id="reveal">${res.path}</a> (${kb} KB)`;
     document.getElementById('reveal').onclick = () => window.hf.revealFile(res.path);

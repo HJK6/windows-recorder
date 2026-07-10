@@ -15,25 +15,12 @@
 
 const { app, BrowserWindow, session, desktopCapturer, ipcMain, shell } = require('electron');
 const path = require('node:path');
-const fs = require('node:fs');
 const { execFile } = require('node:child_process');
 const { wireCapturePermissions } = require('./capture-session');
 const Permissions = require('../shared/permissions');
+const recordingStore = require('./recording-store');
 
-const OUTPUT_DIR = () => path.join(app.getPath('documents'), 'HFRecorder');
-
-function ensureOutputDir() {
-  const dir = OUTPUT_DIR();
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function timestamp() {
-  // YYYYMMDD-HHMMSS in local time, filename-safe.
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
+const documentsDir = () => app.getPath('documents');
 
 // ---- Windows OS microphone-consent probe (best effort) --------------------
 // A desktop (unpackaged) app's mic is gated by BOTH the global consent
@@ -85,17 +72,10 @@ function createWindow() {
 }
 
 function wireIpc() {
-  ipcMain.handle('get-output-dir', () => OUTPUT_DIR());
+  ipcMain.handle('get-output-dir', () => recordingStore.outputDir(documentsDir()));
 
-  ipcMain.handle('save-recording', async (_evt, bytes, sessionId) => {
-    const dir = ensureOutputDir();
-    // session id + timestamp so two stops in the same second never collide.
-    const sid = String(sessionId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'session';
-    const file = path.join(dir, `HFRecorder-${timestamp()}-${sid}.webm`);
-    const buf = Buffer.from(bytes); // bytes: Uint8Array transferred from renderer
-    await fs.promises.writeFile(file, buf);
-    return { path: file, bytes: buf.length };
-  });
+  ipcMain.handle('save-recording', (_evt, bytes, sessionId) =>
+    recordingStore.saveRecording(documentsDir(), bytes, sessionId));
 
   ipcMain.handle('reveal-file', (_evt, filePath) => {
     if (filePath) shell.showItemInFolder(filePath);
