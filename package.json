@@ -9,6 +9,10 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
+    "test:control": "node --test test/control/*.test.js",
+    "test:control:electron": "bash test/control/run-electron-control-harness.sh",
+    "mock:backend": "node mocks/backend/server.js",
+    "mock:flex": "node mocks/flex-console/serve.js",
     "smoke": "bash test/smoke/run-smoke.sh",
     "smoke:save": "bash test/save-harness/run-save-harness.sh",
     "pack": "electron-builder --win --dir",
@@ -35,5 +39,8 @@
       ],
       "signAndEditExecutable": false
     }
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
   }
 }

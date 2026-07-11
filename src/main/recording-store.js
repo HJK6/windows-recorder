@@ -27,8 +27,8 @@ function outputDir(documentsDir) {
   return path.join(documentsDir, 'HFRecorder');
 }
 
-function buildFilename(sessionId, date) {
-  const sid = String(sessionId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'session';
+function buildFilename(recordingId, date) {
+  const sid = String(recordingId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'recording';
   return `HFRecorder-${timestamp(date)}-${sid}.webm`;
 }
 
@@ -48,11 +48,11 @@ function toBuffer(bytes) {
 }
 
 // Write a finished recording. Returns { path, bytes }.
-async function saveRecording(documentsDir, bytes, sessionId, date) {
+async function saveRecording(documentsDir, bytes, recordingId, date) {
   const buf = toBuffer(bytes); // normalize BEFORE mkdir so a bad payload can't leave an empty dir
   const dir = outputDir(documentsDir);
   await fs.promises.mkdir(dir, { recursive: true });
-  const file = path.join(dir, buildFilename(sessionId, date));
+  const file = path.join(dir, buildFilename(recordingId, date));
   await fs.promises.writeFile(file, buf);
   return { path: file, bytes: buf.length };
 }

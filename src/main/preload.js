@@ -6,10 +6,19 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('hf', {
   getOutputDir: () => ipcRenderer.invoke('get-output-dir'),
-  // bytes: Uint8Array of the finished WebM blob; sessionId: short per-recording id.
-  saveRecording: (bytes, sessionId) => ipcRenderer.invoke('save-recording', bytes, sessionId),
   revealFile: (filePath) => ipcRenderer.invoke('reveal-file', filePath),
   openMicPrivacy: () => ipcRenderer.invoke('open-mic-privacy'),
   probeMicConsent: () => ipcRenderer.invoke('probe-mic-consent'),
+  onCommand: (callback) => ipcRenderer.on('control:command', (_event, payload) => {
+    if (payload && payload.kind === 'command') callback(payload.action);
+  }),
+  onState: (callback) => ipcRenderer.on('control:command', (_event, payload) => {
+    if (payload && payload.kind === 'state') callback(payload.state);
+  }),
+  onEvent: (callback) => ipcRenderer.on('control:command', (_event, payload) => {
+    if (payload && payload.kind === 'event') callback(payload);
+  }),
+  sendRecorderState: (state) => ipcRenderer.send('recorder:state', state),
+  sendRecordingStopped: (buffer, meta) => ipcRenderer.send('recorder:stopped', { buffer, meta }),
   platform: process.platform,
 });

@@ -5,3 +5,4 @@ out/
 .DS_Store
 # Local recorded output, if ever written under the repo during dev
 recordings/
+mocks/backend/.data/

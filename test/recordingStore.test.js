@@ -24,11 +24,11 @@ test('toBuffer throws a clear, user-visible error for an unusable payload', () =
   assert.throws(() => RSt.toBuffer(null), /unsupported recording payload/);
 });
 
-test('buildFilename stamps timestamp + sanitized session id', () => {
+test('buildFilename stamps timestamp + sanitized recording id', () => {
   const d = new Date(2026, 6, 9, 21, 36, 5); // 2026-07-09 21:36:05 local
   assert.equal(RSt.buildFilename('abcd1234', d), 'HFRecorder-20260709-213605-abcd1234.webm');
   assert.equal(RSt.buildFilename('with/bad:chars!!', d), 'HFRecorder-20260709-213605-withbadc.webm', 'sanitized + 8 chars');
-  assert.equal(RSt.buildFilename('', d), 'HFRecorder-20260709-213605-session.webm', 'empty -> session');
+  assert.equal(RSt.buildFilename('', d), 'HFRecorder-20260709-213605-recording.webm', 'empty -> recording');
 });
 
 test('saveRecording writes the exact bytes and returns the path', async () => {

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src ws://127.0.0.1:8765; style-src 'self' 'unsafe-inline'">
+  <title>Mock Flex Console</title>
+  <style>
+    body { font: 15px system-ui; max-width: 760px; margin: 40px auto; padding: 0 20px; }
+    button, input, select { margin: 4px; padding: 8px; }
+    pre { background: #eee; color: #222; padding: 12px; min-height: 180px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Mock Flex Console</h1>
+  <label>Agent <input id="agent" value="demo"></label>
+  <select id="kind"><option value="call">call</option><option value="video">video</option><option value="in_person">in_person</option></select>
+  <button id="activate">Activate</button><button id="deactivate">Deactivate</button>
+  <div id="controls"></div>
+  <pre id="status">Disconnected</pre>
+  <script src="app.js"></script>
+</body>
+</html>

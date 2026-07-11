@@ -37,13 +37,20 @@
     #banner button { margin-top: 8px; }
     #output { font-size: 12px; color: #888; word-break: break-all; }
     #output a { color: #4a90e2; cursor: pointer; text-decoration: underline; }
+    #activation { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; font-size: 12px; }
+    #connection { border-radius: 999px; padding: 4px 8px; background: #777; color: white; font-weight: 700; }
+    #connection.online { background: #16803a; }
+    #connection.activating { background: #a56700; }
+    #connection.error { background: #b42318; }
     video { width: 100%; border-radius: 8px; background: #000; margin-top: 8px; display: none; }
     video.show { display: block; }
   </style>
 </head>
 <body>
   <h1>HF Recorder</h1>
-  <p class="sub">Screen + microphone recorder — POC (records locally, no upload)</p>
+  <p class="sub">Screen + microphone recorder — browser-controlled activation harness</p>
+
+  <div id="activation"><span id="connection">OFFLINE</span><span id="identity">No active identity</span></div>
 
   <div id="status">
     <span id="dot"></span>

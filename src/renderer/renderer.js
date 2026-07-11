@@ -31,6 +31,8 @@ const el = {
   openPrivacy: document.getElementById('open-privacy'),
   output: document.getElementById('output'),
   preview: document.getElementById('preview'),
+  connection: document.getElementById('connection'),
+  identity: document.getElementById('identity'),
 };
 
 // ---- Runtime capture objects ----------------------------------------------
@@ -41,10 +43,13 @@ let combinedStream = null;
 let audioTrack = null;
 let recorder = null;
 let chunks = [];
-let sessionId = null;
+let recordingId = null;
+let recordingStartedAt = null;
+let recordingEndedAt = null;
+let sessionOnline = false;
 let finishing = false; // true from STOP until the async save+teardown completes
 
-function genSessionId() {
+function genRecordingId() {
   if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().slice(0, 8);
   return Math.floor(Math.random() * 0xffffffff).toString(16);
 }
@@ -80,7 +85,12 @@ function hideBanner() { el.banner.classList.remove('show'); }
 // Device actions (recorder + track) go through the shared, unit-tested
 // applyRecorderEffect; only renderer-local timer/chunk bookkeeping lives here.
 function applyEffect(effect) {
-  if (effect === RS.EFFECTS.START) { chunks = []; sessionId = genSessionId(); }
+  if (effect === RS.EFFECTS.START) {
+    chunks = [];
+    recordingId = genRecordingId();
+    recordingStartedAt = Date.now();
+    recordingEndedAt = null;
+  }
 
   AE.applyRecorderEffect(effect, { recorder, audioTrack, timesliceMs: 1000 });
 
@@ -96,6 +106,7 @@ function applyEffect(effect) {
       break;
     case RS.EFFECTS.STOP:
       if (segStart != null) { timerBaseMs += performance.now() - segStart; segStart = null; }
+      recordingEndedAt = Date.now();
       stopTicker();
       finishing = true; // block Record until save + stream teardown finish
       break;
@@ -107,6 +118,14 @@ function dispatch(type) {
   for (const e of out.effects) applyEffect(e);
   state = out.state;
   render();
+  window.hf.sendRecorderState({
+    status: state.status,
+    muted: state.muted,
+    finishing: type === 'STOP' && out.effects.includes(RS.EFFECTS.STOP),
+    ...(out.effects.includes(RS.EFFECTS.START)
+      ? { event: 'recording_started', data: { recordingId } }
+      : {}),
+  });
 }
 
 // ---- Render UI from state -------------------------------------------------
@@ -117,18 +136,18 @@ function render() {
     : state.status === RS.PAUSED ? 'paused' : '';
   el.muted.hidden = !state.muted;
 
-  el.record.disabled = RS.isActive(state) || finishing;
-  el.stop.disabled = !RS.isActive(state);
+  el.record.disabled = !sessionOnline || RS.isActive(state) || finishing;
+  el.stop.disabled = !sessionOnline || !RS.isActive(state);
 
   el.pause.hidden = state.status === RS.PAUSED;
-  el.pause.disabled = !RS.canPause(state);
+  el.pause.disabled = !sessionOnline || !RS.canPause(state);
   el.resume.hidden = state.status !== RS.PAUSED;
-  el.resume.disabled = !RS.canResume(state);
+  el.resume.disabled = !sessionOnline || !RS.canResume(state);
 
   el.mute.hidden = state.muted;
-  el.mute.disabled = !RS.canMute(state);
+  el.mute.disabled = !sessionOnline || !RS.canMute(state);
   el.unmute.hidden = !state.muted;
-  el.unmute.disabled = !RS.canUnmute(state);
+  el.unmute.disabled = !sessionOnline || !RS.canUnmute(state);
 }
 
 // ---- Stream setup / teardown ----------------------------------------------
@@ -175,14 +194,16 @@ async function onRecordingStopped() {
   // Pass the raw ArrayBuffer: it is a primary structured-clone type and crosses
   // the contextBridge boundary more reliably than a typed-array view.
   const buffer = await blob.arrayBuffer();
-  try {
-    const res = await window.hf.saveRecording(buffer, sessionId);
-    const kb = Math.round(res.bytes / 1024);
-    el.output.innerHTML = `Saved <a id="reveal">${res.path}</a> (${kb} KB)`;
-    document.getElementById('reveal').onclick = () => window.hf.revealFile(res.path);
-  } catch (err) {
-    el.output.textContent = `Save failed: ${err.message}`;
-  }
+  const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  window.hf.sendRecordingStopped(buffer, {
+    recordingId,
+    startedAt: recordingStartedAt,
+    endedAt: recordingEndedAt,
+    durationMs: Math.round(timerBaseMs),
+    sha256,
+  });
+  el.output.textContent = 'Processing recording upload…';
   teardownStreams();
   finishing = false; // save + teardown done; Record is safe to re-enable
   render();
@@ -190,6 +211,7 @@ async function onRecordingStopped() {
 
 // ---- Record click: set up streams, then start the machine -----------------
 async function onRecord() {
+  if (finishing) return;
   hideBanner();
   el.output.textContent = '';
   try {
@@ -197,6 +219,12 @@ async function onRecord() {
   } catch (err) {
     teardownStreams();
     await explainCaptureFailure(err);
+    window.hf.sendRecorderState({
+      status: RS.IDLE,
+      muted: false,
+      event: 'capture_error',
+      data: { stage: err && err.captureStage ? err.captureStage : 'unknown' },
+    });
     return;
   }
   dispatch('START');
@@ -231,6 +259,25 @@ el.mute.onclick = () => dispatch('MUTE');
 el.unmute.onclick = () => dispatch('UNMUTE');
 el.stop.onclick = () => dispatch('STOP');
 el.openPrivacy.onclick = () => window.hf.openMicPrivacy();
+
+window.hf.onCommand((action) => {
+  if (action === 'start') onRecord();
+  else dispatch(String(action).toUpperCase());
+});
+window.hf.onState((next) => {
+  sessionOnline = next.session === 'online';
+  el.connection.textContent = next.session.toUpperCase();
+  el.connection.className = next.session;
+  el.identity.textContent = next.identity
+    ? `${next.identity.email} · ${next.identity.agentId}`
+    : 'No active identity';
+  render();
+});
+window.hf.onEvent(({ event, data }) => {
+  if (event === 'uploaded') el.output.textContent = `Uploaded ${data.objectKey}`;
+  if (event === 'metadata_written') el.output.textContent = `Complete ${data.objectKey}`;
+  if (event === 'capture_error' && data.reason) el.output.textContent = `Recording error: ${data.reason}`;
+});
 
 // ---- Startup: pre-flight the OS mic-consent layer -------------------------
 (async function init() {
