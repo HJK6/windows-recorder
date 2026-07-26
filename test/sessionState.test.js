@@ -20,6 +20,32 @@ test('session transitions offline through activation to online and back', () => 
   assert.deepEqual(state, Session.initialState());
 });
 
+test('demo state is controllable without activation while the default stays fail-closed', () => {
+  const normal = Session.initialState();
+  const demo = Session.initialState({ demoMode: true });
+  assert.equal(Session.canCommand(normal), false);
+  assert.equal(Session.canCommand(demo), true);
+  assert.equal(demo.session, Session.ONLINE);
+  assert.equal(demo.identity.agentId, 'demo-local');
+  assert.equal(normal.demoMode, false);
+  assert.equal(demo.demoMode, true);
+});
+
+test('demo mode is immutable across session transitions and cannot be spoofed by session id', () => {
+  let normal = Session.reduce(Session.initialState(), { type: 'ACTIVATE_START' });
+  normal = Session.reduce(normal, {
+    type: 'ACTIVATE_SUCCESS', identity: {}, sessionId: 'demo-local',
+  });
+  assert.equal(normal.demoMode, false);
+
+  const deactivatedDemo = Session.reduce(
+    Session.initialState({ demoMode: true }),
+    { type: 'DEACTIVATE' },
+  );
+  assert.equal(deactivatedDemo.demoMode, true);
+  assert.equal(deactivatedDemo.session, Session.ONLINE);
+});
+
 test('activation failure is fail-closed and permits another attempt', () => {
   let state = Session.reduce(Session.initialState(), { type: 'ACTIVATE_START' });
   state = Session.reduce(state, { type: 'ACTIVATE_FAILURE' });

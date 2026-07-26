@@ -41,12 +41,14 @@ let screenStream = null;
 let micStream = null;
 let combinedStream = null;
 let audioTrack = null;
+let demoAudioContext = null;
 let recorder = null;
 let chunks = [];
 let recordingId = null;
 let recordingStartedAt = null;
 let recordingEndedAt = null;
 let sessionOnline = false;
+let demoMode = false;
 let finishing = false; // true from STOP until the async save+teardown completes
 
 function genRecordingId() {
@@ -160,7 +162,18 @@ async function setupStreams() {
   // Microphone audio.
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  } catch (err) { err.captureStage = 'mic'; throw err; }
+  } catch (err) {
+    if (!demoMode) { err.captureStage = 'mic'; throw err; }
+    demoAudioContext = new AudioContext();
+    const oscillator = demoAudioContext.createOscillator();
+    const gain = demoAudioContext.createGain();
+    const destination = demoAudioContext.createMediaStreamDestination();
+    gain.gain.value = 0;
+    oscillator.connect(gain).connect(destination);
+    oscillator.start();
+    micStream = destination.stream;
+    el.output.textContent = 'Demo mode: no microphone detected; using a silent audio track.';
+  }
 
   const videoTrack = screenStream.getVideoTracks()[0];
   audioTrack = micStream.getAudioTracks()[0];
@@ -184,6 +197,8 @@ function teardownStreams() {
     if (s) s.getTracks().forEach((t) => t.stop());
   }
   screenStream = micStream = combinedStream = audioTrack = recorder = null;
+  if (demoAudioContext) demoAudioContext.close().catch(() => {});
+  demoAudioContext = null;
   el.preview.srcObject = null;
   el.preview.classList.remove('show');
 }
@@ -266,6 +281,7 @@ window.hf.onCommand((action) => {
 });
 window.hf.onState((next) => {
   sessionOnline = next.session === 'online';
+  demoMode = Boolean(next.demoMode);
   el.connection.textContent = next.session.toUpperCase();
   el.connection.className = next.session;
   el.identity.textContent = next.identity
@@ -274,6 +290,7 @@ window.hf.onState((next) => {
   render();
 });
 window.hf.onEvent(({ event, data }) => {
+  if (event === 'saved_local') el.output.textContent = `Saved ${data.path}`;
   if (event === 'uploaded') el.output.textContent = `Uploaded ${data.objectKey}`;
   if (event === 'metadata_written') el.output.textContent = `Complete ${data.objectKey}`;
   if (event === 'capture_error' && data.reason) el.output.textContent = `Recording error: ${data.reason}`;

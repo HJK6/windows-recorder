@@ -6,12 +6,14 @@
   const ONLINE = 'online';
   const ERROR = 'error';
 
-  function initialState() {
+  function initialState(options = {}) {
+    const demoMode = Boolean(options.demoMode);
     return {
-      session: OFFLINE,
+      session: demoMode ? ONLINE : OFFLINE,
       recorder: { status: 'idle', muted: false },
-      identity: null,
-      sessionId: null,
+      identity: demoMode ? { email: 'demo@localhost', agentId: 'demo-local' } : null,
+      sessionId: demoMode ? 'demo-local' : null,
+      demoMode,
     };
   }
 
@@ -35,7 +37,7 @@
       case 'RECORDER_STATE':
         return { ...state, recorder: { status: event.status, muted: Boolean(event.muted) } };
       case 'DEACTIVATE':
-        return initialState();
+        return initialState({ demoMode: state.demoMode });
       default:
         return state;
     }

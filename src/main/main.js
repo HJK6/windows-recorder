@@ -11,6 +11,7 @@ const recordingStore = require('./recording-store');
 const { loadConfig } = require('./config');
 const { createActivationClient } = require('./activation');
 const { createControlServer } = require('./control-server');
+const { createDemoServer } = require('./demo-server');
 
 const config = loadConfig();
 const events = new EventEmitter();
@@ -18,13 +19,14 @@ const documentsDir = () => app.getPath('documents');
 let mainWindow = null;
 let rendererReady = false;
 let quitting = false;
-let publicState = SessionState.initialState();
+let publicState = SessionState.initialState({ demoMode: config.demoMode });
 let activationSession = null;
 let activationContext = {};
 let activationGeneration = 0;
 let pendingDeactivate = false;
 let recordingFinalizing = false;
 let queuedStart = false;
+let demoServer = null;
 
 const activation = createActivationClient({
   baseUrl: config.backendBaseUrl,
@@ -115,6 +117,11 @@ async function deactivate() {
 async function handleRecordingStopped(buffer, meta) {
   publishEvent('recording_stopped', { recordingId: meta.recordingId });
   try {
+    if (config.demoMode) {
+      const local = await recordingStore.saveRecording(documentsDir(), buffer, meta.recordingId);
+      publishEvent('saved_local', local);
+      return;
+    }
     const result = await activation.processRecording({
       session: activationSession,
       buffer,
@@ -124,15 +131,19 @@ async function handleRecordingStopped(buffer, meta) {
     publishEvent('uploaded', { objectKey: result.objectKey, sizeBytes: result.sizeBytes });
     publishEvent('metadata_written', { objectKey: result.objectKey, recordingId: meta.recordingId });
   } catch (error) {
-    if (error.status === 401) publishEvent('activation_error', { status: 401 });
-    if (config.saveLocal) {
+    if (config.demoMode) {
+      publishEvent('capture_error', { reason: 'local_save_failed' });
+    } else if (error.status === 401) {
+      publishEvent('activation_error', { status: 401 });
+    }
+    if (!config.demoMode && config.saveLocal) {
       try {
         const local = await recordingStore.saveRecording(documentsDir(), buffer, meta.recordingId);
         publishEvent('capture_error', { reason: 'upload_failed', local });
       } catch (_) {
         publishEvent('capture_error', { reason: 'upload_and_local_save_failed' });
       }
-    } else {
+    } else if (!config.demoMode) {
       publishEvent('capture_error', { reason: 'upload_failed' });
     }
   } finally {
@@ -236,11 +247,18 @@ app.whenReady().then(async () => {
     events,
   });
   await control.start();
+  if (config.demoMode) {
+    demoServer = createDemoServer({ port: config.demoSitePort, controlPort: config.controlPort });
+    await demoServer.start();
+  }
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow();
     else mainWindow.show();
   });
 });
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => {
+  quitting = true;
+  if (demoServer) demoServer.close().catch(() => {});
+});
 app.on('window-all-closed', () => {});
