@@ -1,6 +1,6 @@
 {
   "name": "hf-recorder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "HF Recorder — screen + microphone desktop recorder (Calabrio replacement POC)",
   "main": "src/main/main.js",
@@ -10,7 +10,6 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "test:control": "node --test test/control/*.test.js",
-    "test:control:electron": "bash test/control/run-electron-control-harness.sh",
     "mock:backend": "node mocks/backend/server.js",
     "mock:flex": "node mocks/flex-console/serve.js",
     "smoke": "bash test/smoke/run-smoke.sh",
@@ -39,8 +38,5 @@
       ],
       "signAndEditExecutable": false
     }
-  },
-  "dependencies": {
-    "ws": "^8.21.0"
   }
 }

@@ -1,101 +1,118 @@
 'use strict';
 
 const http = require('node:http');
-const { WebSocketServer, WebSocket } = require('ws');
 
 const ACTIONS = new Set(['start', 'stop', 'pause', 'resume', 'mute', 'unmute']);
 
+// The state a given command is trying to bring the recorder to. A POST resolves
+// only once the recorder has actually reached it (or the wait times out).
+function reached(action, state) {
+  const status = state.recorder.status;
+  const muted = Boolean(state.recorder.muted);
+  switch (action) {
+    case 'start': return status === 'recording';
+    case 'stop': return status === 'idle';
+    case 'pause': return status === 'paused';
+    case 'resume': return status === 'recording';
+    case 'mute': return muted;
+    case 'unmute': return !muted;
+    default: return false;
+  }
+}
+
+function summary(state) {
+  return {
+    recorder: state.recorder.status,
+    muted: Boolean(state.recorder.muted),
+    online: state.session === 'online',
+  };
+}
+
+// Loopback HTTP control API driving the desktop recorder. No auth, open to any
+// origin (loopback-only). Request/response only — no WebSocket, no server push.
 function createControlServer({
-  host = '127.0.0.1', port = 8765, allowedOrigins = [], getState,
-  onCommand, onActivate, onDeactivate, events,
+  host = '127.0.0.1', port = 18765, getState, onCommand, events, commandTimeoutMs = 3000,
 }) {
-  const origins = new Set(allowedOrigins);
+  function cors(res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Vary', 'Origin');
+  }
+  function json(res, status, body) {
+    cors(res);
+    res.statusCode = status;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(body));
+  }
+
+  // Resolves true once the recorder reaches the action's target state, false on
+  // timeout. Returns a canceler so the caller can tear it down if the command
+  // could not even be issued (avoids a leaked listener + a full-timeout stall).
+  function awaitState(action) {
+    let settle;
+    let timer;
+    const promise = new Promise((resolve) => { settle = resolve; });
+    const onState = (state) => { if (reached(action, state)) finish(true); };
+    const finish = (ok) => { clearTimeout(timer); events.off('state', onState); settle(ok); };
+    timer = setTimeout(() => finish(false), commandTimeoutMs);
+    events.on('state', onState);
+    return { promise, cancel: () => finish(false) };
+  }
+
+  async function handleCommand(action, res) {
+    if (!ACTIONS.has(action)) {
+      json(res, 400, { ok: false, error: { code: 'bad_action', message: 'unsupported action' } });
+      return;
+    }
+    if (getState().session !== 'online') {
+      json(res, 409, { ok: false, error: { code: 'not_ready', message: 'recorder is offline' } });
+      return;
+    }
+    if (reached(action, getState())) {
+      json(res, 200, { ok: true, ...summary(getState()) });
+      return;
+    }
+    const waiter = awaitState(action);
+    try {
+      onCommand(action);
+    } catch (_) {
+      waiter.cancel();
+      json(res, 503, { ok: false, error: { code: 'recorder_unavailable', message: 'recorder is not ready' } });
+      return;
+    }
+    const ok = await waiter.promise;
+    json(res, ok ? 200 : 504, {
+      ok,
+      ...(ok ? {} : { error: { code: 'timeout', message: 'recorder did not confirm the command' } }),
+      ...summary(getState()),
+    });
+  }
+
   const server = http.createServer((req, res) => {
-    const origin = req.headers.origin;
-    if (req.method === 'OPTIONS' && origins.has(origin)) {
-      res.statusCode = 204;
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    const route = (req.url || '/').split('?')[0];
+    if (req.method === 'OPTIONS') {
+      cors(res);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      // Private Network Access preflight: a file:// / public-origin page reaching
+      // loopback needs this echoed back or Chrome/Edge blocks the request.
       if (req.headers['access-control-request-private-network'] === 'true') {
         res.setHeader('Access-Control-Allow-Private-Network', 'true');
       }
+      res.statusCode = 204;
       res.end();
       return;
     }
-    res.statusCode = 404;
-    res.end();
+    if (req.method === 'GET' && route === '/status') {
+      json(res, 200, { ok: true, ...summary(getState()) });
+      return;
+    }
+    if (req.method === 'POST' && route.length > 1) {
+      handleCommand(route.slice(1), res)
+        .catch(() => json(res, 500, { ok: false, error: { code: 'internal', message: 'command failed' } }));
+      return;
+    }
+    json(res, 404, { ok: false, error: { code: 'not_found', message: 'unknown route' } });
   });
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on('upgrade', (req, socket, head) => {
-    if (!origins.has(req.headers.origin)) {
-      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-  });
-
-  const send = (ws, payload) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ v: 1, ...payload }));
-  };
-  const broadcast = (payload) => {
-    for (const ws of wss.clients) send(ws, payload);
-  };
-  const ack = (ws, requestId, ok, error) => {
-    if (requestId == null) return;
-    send(ws, { type: 'ack', requestId, ok, ...(error ? { error } : {}) });
-  };
-
-  async function handle(ws, raw) {
-    let message;
-    try { message = JSON.parse(raw.toString()); } catch (_) { return; }
-    if (message.v !== 1) return;
-
-    if (message.type === 'status') {
-      ack(ws, message.requestId, true);
-      send(ws, { type: 'state', ...getState() });
-      return;
-    }
-    if (message.type === 'command') {
-      if (!ACTIONS.has(message.action)) {
-        ack(ws, message.requestId, false, { code: 'bad_action', message: 'unsupported action' });
-        return;
-      }
-      if (getState().session !== 'online') {
-        ack(ws, message.requestId, false, { code: 'not_activated', message: 'recorder is offline' });
-        return;
-      }
-      onCommand(message.action, { requestId: message.requestId });
-      ack(ws, message.requestId, true);
-      return;
-    }
-    if (message.type === 'activate') {
-      try {
-        await onActivate(message);
-        ack(ws, message.requestId, true);
-      } catch (error) {
-        const code = error.code || 'activation_failed';
-        ack(ws, message.requestId, false, { code, message: error.message });
-      }
-      return;
-    }
-    if (message.type === 'deactivate') {
-      await onDeactivate();
-      ack(ws, message.requestId, true);
-    }
-  }
-
-  wss.on('connection', (ws) => {
-    send(ws, { type: 'state', ...getState() });
-    ws.on('message', (raw) => { handle(ws, raw).catch(() => {}); });
-  });
-
-  const onState = (state) => broadcast({ type: 'state', ...state });
-  const onEvent = (event) => broadcast({ type: 'event', ...event });
-  events.on('state', onState);
-  events.on('event', onEvent);
 
   return {
     async start() {
@@ -106,10 +123,7 @@ function createControlServer({
       return server.address();
     },
     async close() {
-      events.off('state', onState);
-      events.off('event', onEvent);
-      for (const ws of wss.clients) ws.close();
-      await new Promise((resolve) => wss.close(() => server.close(resolve)));
+      await new Promise((resolve) => server.close(resolve));
     },
     address: () => server.address(),
   };

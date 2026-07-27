@@ -282,6 +282,7 @@ window.hf.onCommand((action) => {
 window.hf.onState((next) => {
   sessionOnline = next.session === 'online';
   demoMode = Boolean(next.demoMode);
+  document.getElementById('activation').style.display = demoMode ? 'none' : 'flex';
   el.connection.textContent = next.session.toUpperCase();
   el.connection.className = next.session;
   el.identity.textContent = next.identity

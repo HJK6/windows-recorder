@@ -2,10 +2,10 @@
 
 ## Cold start
 
-1. Double-click `HFRecorder-Setup-0.1.0.exe` and complete the installer.
-2. Open Start and search for **HF Recorder** to show the installed app entry.
-3. Close any running HF Recorder window, then double-click `Launch-HF-Recorder-Demo.cmd`.
-4. Wait for the desktop recorder and browser control page to open.
+1. Double-click `HFRecorder-Setup-0.2.0.exe` and complete the installer.
+2. Open Start, search for **HF Recorder**, and launch the app normally.
+3. Wait for the desktop recorder to open.
+4. Double-click `HF-Recorder-Demo.html` to open the browser control page.
 
 ## Website-driven rehearsal
 
@@ -19,4 +19,10 @@
 2. In the desktop app click **Record**, **Pause**, **Resume**, **Mute**, **Unmute**, then **Stop**.
 3. Confirm a second recording appears under `Documents\HFRecorder`.
 
-Demo mode is enabled only by the launcher. A normal Start-menu launch remains offline until activation.
+The normal Start-menu launch starts only the recorder UI and a loopback HTTP control
+API (`http://127.0.0.1:18765`). The standalone HTML opens directly from this folder in
+Edge or Chrome and never starts or restarts the app — each button is a plain HTTP
+request to that API. It checks the recorder once on open; if the app is closed it says
+so and offers **Retry connection** (no background polling). The token-activation path
+is retained in the source but off the runtime path in this build — re-enabling it is a
+code step (see the project README, "Re-enabling auth"), not a launch flag.

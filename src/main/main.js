@@ -11,7 +11,6 @@ const recordingStore = require('./recording-store');
 const { loadConfig } = require('./config');
 const { createActivationClient } = require('./activation');
 const { createControlServer } = require('./control-server');
-const { createDemoServer } = require('./demo-server');
 
 const config = loadConfig();
 const events = new EventEmitter();
@@ -26,7 +25,6 @@ let activationGeneration = 0;
 let pendingDeactivate = false;
 let recordingFinalizing = false;
 let queuedStart = false;
-let demoServer = null;
 
 const activation = createActivationClient({
   baseUrl: config.backendBaseUrl,
@@ -239,18 +237,11 @@ app.whenReady().then(async () => {
   const control = createControlServer({
     host: config.bindAddr,
     port: config.controlPort,
-    allowedOrigins: config.allowedOrigins,
     getState: () => publicState,
     onCommand: relayCommand,
-    onActivate: activate,
-    onDeactivate: deactivate,
     events,
   });
   await control.start();
-  if (config.demoMode) {
-    demoServer = createDemoServer({ port: config.demoSitePort, controlPort: config.controlPort });
-    await demoServer.start();
-  }
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow();
     else mainWindow.show();
@@ -259,6 +250,5 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true;
-  if (demoServer) demoServer.close().catch(() => {});
 });
 app.on('window-all-closed', () => {});
