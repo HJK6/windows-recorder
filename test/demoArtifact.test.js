@@ -20,4 +20,6 @@ test('standalone demo page is self-contained and drives the app over the HTTP AP
   assert.match(html, /fetch\(/);
   assert.match(html, /not running/i);
   assert.doesNotMatch(html, /new WebSocket|ws:\/\//);
+  // Polls /status on a 1s interval to mirror live app state.
+  assert.match(html, /setInterval\(\s*poll\s*,\s*1000\s*\)/);
 });

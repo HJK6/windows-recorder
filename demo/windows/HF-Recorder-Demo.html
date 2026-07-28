@@ -138,19 +138,25 @@
       return body;
     }
 
-    function refreshStatus() {
-      message.textContent = 'Checking the recorder…';
-      call('GET', '/status').then((body) => {
-        if (body) message.textContent = 'Connected. The desktop recorder is ready.';
-      });
+    // Poll /status every second so the page mirrors live app state — whether the
+    // recorder is driven from here, its own desktop buttons, or another browser.
+    // A failed poll shows the not-running banner and keeps trying, so it also
+    // auto-recovers when the app comes back.
+    let wasReachable = false;
+    async function poll() {
+      await call('GET', '/status');
+      if (reachable && !wasReachable) message.textContent = 'Connected. The desktop recorder is ready.';
+      wasReachable = reachable;
     }
 
     for (const action of actionIds) {
       buttons[action].onclick = () => call('POST', `/${action}`, action);
     }
-    retry.onclick = refreshStatus;
+    retry.onclick = poll;
+    message.textContent = 'Checking the recorder…';
     render();
-    refreshStatus();
+    poll();
+    setInterval(poll, 1000);
   </script>
 </body>
 </html>

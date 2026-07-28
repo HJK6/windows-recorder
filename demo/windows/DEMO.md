@@ -22,7 +22,9 @@
 The normal Start-menu launch starts only the recorder UI and a loopback HTTP control
 API (`http://127.0.0.1:18765`). The standalone HTML opens directly from this folder in
 Edge or Chrome and never starts or restarts the app — each button is a plain HTTP
-request to that API. It checks the recorder once on open; if the app is closed it says
-so and offers **Retry connection** (no background polling). The token-activation path
-is retained in the source but off the runtime path in this build — re-enabling it is a
-code step (see the project README, "Re-enabling auth"), not a launch flag.
+request to that API. It polls the recorder about once a second, so it mirrors the app's live state whether
+you drive it from here or from the app's own desktop buttons; if the app is closed it
+says so and keeps retrying, recovering automatically when the app is back. The
+token-activation path is retained in the source but off the runtime path in this
+build — re-enabling it is a code step (see the project README, "Re-enabling auth"),
+not a launch flag.
