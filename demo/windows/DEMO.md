@@ -28,3 +28,19 @@ says so and keeps retrying, recovering automatically when the app is back. The
 token-activation path is retained in the source but off the runtime path in this
 build — re-enabling it is a code step (see the project README, "Re-enabling auth"),
 not a launch flag.
+
+## Building the installer from source
+
+Needs **Node 20+** and **`makensis`** (NSIS: `sudo apt install nsis` on Linux/WSL;
+no wine required). From the repo root:
+
+```bash
+npm install        # once — fetches electron + electron-builder
+npm run dist       # -> dist/HFRecorder-Setup-<version>.exe   (~105 MB)
+```
+
+`npm run dist` packs the app (`electron-builder --win --dir`) then wraps it with native
+`makensis`. The `<version>` in the filename comes from `package.json`; bump it with
+`npm pkg set version=0.3.0` before building to distinguish builds. See the project
+README ("Build the Windows installer") for the full details, prerequisites, and the
+per-user / silent-install options.
