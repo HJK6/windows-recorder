@@ -229,24 +229,40 @@ function wireIpc() {
   });
 }
 
-app.whenReady().then(async () => {
-  wireCapturePermissions(session.defaultSession, desktopCapturer);
-  wireIpc();
-  mainWindow = createWindow();
-  await mainWindow.hfReady;
-  const control = createControlServer({
-    host: config.bindAddr,
-    port: config.controlPort,
-    getState: () => publicState,
-    onCommand: relayCommand,
-    events,
+if (!app.requestSingleInstanceLock()) {
+  // Another instance already owns the recorder window and the control server
+  // (127.0.0.1:18765). A second instance would show an idle window that never
+  // receives control commands — so quit this duplicate immediately.
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Relaunching (e.g. clicking the shortcut again) surfaces the existing window
+    // instead of starting a rival.
+    if (!mainWindow || mainWindow.isDestroyed()) { mainWindow = createWindow(); return; }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
-  await control.start();
-  app.on('activate', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow();
-    else mainWindow.show();
+
+  app.whenReady().then(async () => {
+    wireCapturePermissions(session.defaultSession, desktopCapturer);
+    wireIpc();
+    mainWindow = createWindow();
+    await mainWindow.hfReady;
+    const control = createControlServer({
+      host: config.bindAddr,
+      port: config.controlPort,
+      getState: () => publicState,
+      onCommand: relayCommand,
+      events,
+    });
+    await control.start();
+    app.on('activate', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow();
+      else mainWindow.show();
+    });
   });
-});
+}
 
 app.on('before-quit', () => {
   quitting = true;
