@@ -6,32 +6,56 @@ const { execFile } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { wireCapturePermissions } = require('./capture-session');
 const Permissions = require('../shared/permissions');
-const SessionState = require('../shared/sessionState');
 const recordingStore = require('./recording-store');
 const { loadConfig } = require('./config');
-const { createActivationClient } = require('./activation');
-const { createControlServer } = require('./control-server');
+const { createMockIdentity } = require('./identity');
+const { createWsClient } = require('./ws-client');
+const { createUploadClient } = require('./upload');
 
 const config = loadConfig();
+
+// P5 synthetic capture (Amaterasu): Chromium fake media — a silent, synthetic
+// screen + mic with no real content or sound, and auto-accepted capture prompts.
+// Opt-in via FR_FAKE_MEDIA=1; never on in a normal run.
+if (/^(1|true|yes)$/i.test(process.env.FR_FAKE_MEDIA || '')) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+}
+
 const events = new EventEmitter();
 const documentsDir = () => app.getPath('documents');
 let mainWindow = null;
 let rendererReady = false;
 let quitting = false;
-let publicState = SessionState.initialState({ demoMode: config.demoMode });
-let activationSession = null;
-let activationContext = {};
-let activationGeneration = 0;
-let pendingDeactivate = false;
-let recordingFinalizing = false;
-let queuedStart = false;
 
-const activation = createActivationClient({
-  baseUrl: config.backendBaseUrl,
-  saveLocal: config.saveLocal
-    ? (buffer, recordingId) => recordingStore.saveRecording(documentsDir(), buffer, recordingId)
-    : null,
-});
+// Public state mirrored to the renderer. `session` reflects the WS control
+// channel (online once the server welcomes us); demo mode has no channel.
+let publicState = {
+  session: config.demoMode ? 'online' : 'offline',
+  recorder: { status: 'idle', muted: false },
+  identity: config.demoMode ? null : { email: `${config.deviceId}@device`, agentId: config.deviceId },
+  demoMode: config.demoMode,
+  connected: config.connected,
+};
+
+// Server-authoritative recording id for the recording the desktop is currently
+// capturing (set when a start/resume command is applied), used to scope the
+// upload grant on stop. Decoupled from ws-client's active tracking so it
+// survives the stop→finalize race.
+let currentRecordingId = null;
+
+let identity = null;
+let wsClient = null;
+let uploadClient = null;
+
+if (config.connected) {
+  identity = createMockIdentity({
+    tokenEndpoint: config.tokenEndpoint,
+    deviceId: config.deviceId,
+    bootstrapSecret: config.bootstrapSecret,
+  });
+  uploadClient = createUploadClient({ httpApiUrl: config.httpApiUrl });
+}
 
 function rendererPush(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('control:command', payload);
@@ -43,73 +67,30 @@ function publishState() {
 }
 
 function publishEvent(event, data = {}) {
-  const payload = { event, data };
-  events.emit('event', payload);
-  rendererPush({ kind: 'event', ...payload });
+  events.emit('event', { event, data });
+  rendererPush({ kind: 'event', event, data });
 }
 
-function transition(event) {
-  publicState = SessionState.reduce(publicState, event);
+function setConnection(status) {
+  publicState = { ...publicState, session: status };
   publishState();
 }
 
-function relayCommand(action) {
+function setRecorder(status, muted) {
+  publicState = { ...publicState, recorder: { status, muted: Boolean(muted) } };
+  publishState();
+}
+
+// Relay a server-issued command to the capture renderer. The renderer owns the
+// real MediaRecorder; main only forwards and later observes the applied state.
+function relayCommand(action, ctx = {}) {
   if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) {
     throw new Error('capture window unavailable');
   }
-  if (action === 'start' && recordingFinalizing) {
-    queuedStart = true;
-    return;
+  if ((action === 'start' || action === 'resume') && ctx.recordingId) {
+    currentRecordingId = ctx.recordingId;
   }
-  if (action === 'stop' && publicState.recorder.status !== 'idle') recordingFinalizing = true;
   mainWindow.webContents.send('control:command', { kind: 'command', action });
-}
-
-async function activate(message) {
-  if (recordingFinalizing || !SessionState.canActivate(publicState)) {
-    const error = new Error('activation is already active or recording is not finalized');
-    error.code = 'already_activated';
-    throw error;
-  }
-  const generation = ++activationGeneration;
-  transition({ type: 'ACTIVATE_START' });
-  try {
-    const result = await activation.validateFlexToken(message.flexToken);
-    if (generation !== activationGeneration || publicState.session !== SessionState.ACTIVATING) return;
-    activationSession = result;
-    activationContext = message.context || {};
-    transition({ type: 'ACTIVATE_SUCCESS', identity: result.identity, sessionId: result.sessionId });
-    publishEvent('activated', { identity: result.identity, sessionId: result.sessionId });
-  } catch (error) {
-    if (generation !== activationGeneration || publicState.session !== SessionState.ACTIVATING) return;
-    activationSession = null;
-    activationContext = {};
-    transition({ type: 'ACTIVATE_FAILURE' });
-    publishEvent('activation_error', { status: error.status || null });
-    throw error;
-  }
-}
-
-function finishDeactivation() {
-  activationGeneration += 1;
-  pendingDeactivate = false;
-  activationSession = null;
-  activationContext = {};
-  transition({ type: 'DEACTIVATE' });
-  publishEvent('deactivated');
-}
-
-async function deactivate() {
-  if (recordingFinalizing) {
-    pendingDeactivate = true;
-    return;
-  }
-  if (publicState.recorder.status !== 'idle') {
-    pendingDeactivate = true;
-    relayCommand('stop');
-    return;
-  }
-  finishDeactivation();
 }
 
 async function handleRecordingStopped(buffer, meta) {
@@ -120,37 +101,25 @@ async function handleRecordingStopped(buffer, meta) {
       publishEvent('saved_local', local);
       return;
     }
-    const result = await activation.processRecording({
-      session: activationSession,
-      buffer,
-      meta,
-      context: activationContext,
-    });
+    const { token } = await identity.getDeviceToken();
+    const recordingId = currentRecordingId || meta.recordingId;
+    const result = await uploadClient.upload({ recordingId, deviceToken: token, buffer, meta });
     publishEvent('uploaded', { objectKey: result.objectKey, sizeBytes: result.sizeBytes });
-    publishEvent('metadata_written', { objectKey: result.objectKey, recordingId: meta.recordingId });
+    publishEvent('metadata_written', {
+      objectKey: result.objectKey,
+      recordingId,
+      verified: result.verified === true,
+    });
   } catch (error) {
-    if (config.demoMode) {
-      publishEvent('capture_error', { reason: 'local_save_failed' });
-    } else if (error.status === 401) {
-      publishEvent('activation_error', { status: 401 });
-    }
-    if (!config.demoMode && config.saveLocal) {
+    publishEvent('capture_error', { reason: 'upload_failed', status: error.status || null });
+    if (config.saveLocal) {
       try {
         const local = await recordingStore.saveRecording(documentsDir(), buffer, meta.recordingId);
         publishEvent('capture_error', { reason: 'upload_failed', local });
-      } catch (_) {
-        publishEvent('capture_error', { reason: 'upload_and_local_save_failed' });
-      }
-    } else if (!config.demoMode) {
-      publishEvent('capture_error', { reason: 'upload_failed' });
+      } catch (_) { /* best effort */ }
     }
   } finally {
-    const restart = queuedStart && !pendingDeactivate
-      && publicState.session === SessionState.ONLINE;
-    queuedStart = false;
-    recordingFinalizing = false;
-    if (pendingDeactivate) finishDeactivation();
-    else if (restart) relayCommand('start');
+    currentRecordingId = null;
   }
 }
 
@@ -185,7 +154,7 @@ function createWindow() {
     width: 640,
     height: 610,
     resizable: true,
-    title: 'HF Recorder',
+    title: 'Fleet Recorder',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -195,21 +164,15 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   rendererReady = false;
-  win.hfReady = win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html')).then(() => {
+  win.readyPromise = win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html')).then(() => {
     rendererReady = true;
     publishState();
   });
   win.on('close', (event) => {
-    if (!quitting) {
-      event.preventDefault();
-      win.hide();
-    }
+    if (!quitting) { event.preventDefault(); win.hide(); }
   });
   win.on('closed', () => {
-    if (mainWindow === win) {
-      mainWindow = null;
-      rendererReady = false;
-    }
+    if (mainWindow === win) { mainWindow = null; rendererReady = false; }
   });
   return win;
 }
@@ -220,8 +183,7 @@ function wireIpc() {
   ipcMain.handle('open-mic-privacy', () => shell.openExternal('ms-settings:privacy-microphone'));
   ipcMain.handle('probe-mic-consent', () => probeWindowsMicConsent());
   ipcMain.on('recorder:state', (_event, payload) => {
-    if (payload.finishing) recordingFinalizing = true;
-    transition({ type: 'RECORDER_STATE', status: payload.status, muted: payload.muted });
+    setRecorder(payload.status, payload.muted);
     if (payload.event) publishEvent(payload.event, payload.data || {});
   });
   ipcMain.on('recorder:stopped', (_event, payload) => {
@@ -230,14 +192,11 @@ function wireIpc() {
 }
 
 if (!app.requestSingleInstanceLock()) {
-  // Another instance already owns the recorder window and the control server
-  // (127.0.0.1:18765). A second instance would show an idle window that never
-  // receives control commands — so quit this duplicate immediately.
+  // Single capture owner per session (spec §8). A second instance would show an
+  // idle window that receives no commands, so quit this duplicate immediately.
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // Relaunching (e.g. clicking the shortcut again) surfaces the existing window
-    // instead of starting a rival.
     if (!mainWindow || mainWindow.isDestroyed()) { mainWindow = createWindow(); return; }
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
@@ -248,15 +207,21 @@ if (!app.requestSingleInstanceLock()) {
     wireCapturePermissions(session.defaultSession, desktopCapturer);
     wireIpc();
     mainWindow = createWindow();
-    await mainWindow.hfReady;
-    const control = createControlServer({
-      host: config.bindAddr,
-      port: config.controlPort,
-      getState: () => publicState,
-      onCommand: relayCommand,
-      events,
-    });
-    await control.start();
+    await mainWindow.readyPromise;
+
+    if (config.connected) {
+      wsClient = createWsClient({
+        wsUrl: config.wsUrl,
+        identity,
+        getState: () => publicState,
+        relay: relayCommand,
+        events,
+        onConnection: setConnection,
+        logger: console,
+      });
+      wsClient.start();
+    }
+
     app.on('activate', () => {
       if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow();
       else mainWindow.show();
@@ -266,5 +231,6 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (wsClient) wsClient.stop();
 });
 app.on('window-all-closed', () => {});

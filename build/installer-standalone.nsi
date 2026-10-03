@@ -1,4 +1,4 @@
-; Standalone NSIS installer for HF Recorder.
+; Standalone NSIS installer for Fleet Recorder.
 ;
 ; Compiled with native makensis (Linux) — NO wine required, unlike
 ; electron-builder's NSIS target (which runs the installer under wine to
@@ -7,16 +7,16 @@
 ;
 ; Build from the repo root:
 ;   ./node_modules/.bin/electron-builder --win --dir     ; -> dist/win-unpacked
-;   makensis build/installer-standalone.nsi              ; -> dist/HFRecorder-Setup-<ver>.exe
+;   makensis build/installer-standalone.nsi              ; -> dist/FleetRecorder-Setup-<ver>.exe
 ;
 ; Per-user install (RequestExecutionLevel user): no admin prompt, installs to
-; %LOCALAPPDATA%\Programs\HFRecorder, writes only HKCU. Matches the POC's
+; %LOCALAPPDATA%\Programs\FleetRecorder, writes only HKCU. Matches the POC's
 ; per-user install decision.
 
 Unicode true
 
-!define APPNAME "HFRecorder"
-!define DISPLAYNAME "HF Recorder"
+!define APPNAME "FleetRecorder"
+!define DISPLAYNAME "Fleet Recorder"
 !define COMPANY "Vamshi Gujju"
 !ifndef VERSION
   !define VERSION "0.1.0"
@@ -25,7 +25,7 @@ Unicode true
   !define SRC "dist/win-unpacked"
 !endif
 !ifndef OUTFILE
-  !define OUTFILE "dist\HFRecorder-Setup-0.1.0.exe"
+  !define OUTFILE "dist\FleetRecorder-Setup-0.1.0.exe"
 !endif
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 
@@ -58,8 +58,8 @@ Section "Install"
 
   ; --- Shortcuts -----------------------------------------------------------
   CreateDirectory "$SMPROGRAMS\${DISPLAYNAME}"
-  CreateShortcut "$SMPROGRAMS\${DISPLAYNAME}\${DISPLAYNAME}.lnk" "$INSTDIR\HFRecorder.exe"
-  CreateShortcut "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\HFRecorder.exe"
+  CreateShortcut "$SMPROGRAMS\${DISPLAYNAME}\${DISPLAYNAME}.lnk" "$INSTDIR\FleetRecorder.exe"
+  CreateShortcut "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\FleetRecorder.exe"
 
   ; --- Uninstaller + Add/Remove Programs (per-user, HKCU) ------------------
   WriteUninstaller "$INSTDIR\Uninstall.exe"

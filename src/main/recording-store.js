@@ -24,12 +24,12 @@ function timestamp(date) {
 }
 
 function outputDir(documentsDir) {
-  return path.join(documentsDir, 'HFRecorder');
+  return path.join(documentsDir, 'FleetRecorder');
 }
 
 function buildFilename(recordingId, date) {
   const sid = String(recordingId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'recording';
-  return `HFRecorder-${timestamp(date)}-${sid}.webm`;
+  return `FleetRecorder-${timestamp(date)}-${sid}.webm`;
 }
 
 // Normalize whatever the IPC layer delivered into a Buffer, or throw a clear,

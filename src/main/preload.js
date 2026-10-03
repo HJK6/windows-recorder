@@ -4,7 +4,7 @@
 // Only these narrow, purpose-built calls cross the boundary.
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('hf', {
+contextBridge.exposeInMainWorld('fleet', {
   getOutputDir: () => ipcRenderer.invoke('get-output-dir'),
   revealFile: (filePath) => ipcRenderer.invoke('reveal-file', filePath),
   openMicPrivacy: () => ipcRenderer.invoke('open-mic-privacy'),

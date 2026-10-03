@@ -6,3 +6,21 @@ out/
 # Local recorded output, if ever written under the repo during dev
 recordings/
 mocks/backend/.data/
+
+# Terraform — never commit state, plans, or variable files (may hold company
+# account IDs, endpoints, secrets). Only *.tf source ships; tfvars live locally.
+aws/.terraform/
+aws/.terraform.lock.hcl
+aws/build/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/*.tfvars
+crash.log
+# Local secrets / env / evidence — keep out of the public repo
+.env
+*.env
+secrets/
+evidence/
+*.pem
+*.key

@@ -6,7 +6,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DOCS="$(mktemp -d)"
 LOG="$(mktemp)"
-export HF_SAVE_DOCS="$DOCS"
+export FR_SAVE_DOCS="$DOCS"
 cleanup() { rm -rf "$DOCS" "$LOG"; }
 trap cleanup EXIT
 
@@ -16,11 +16,11 @@ CODE=$?
 echo "--- harness log ---"
 grep -E "HARNESS|PAGE" "$LOG" | head -10
 
-FILE=$(ls "$DOCS/HFRecorder/"*.webm 2>/dev/null | head -1)
+FILE=$(ls "$DOCS/FleetRecorder/"*.webm 2>/dev/null | head -1)
 if [ -n "${FILE:-}" ] && [ -s "$FILE" ]; then
   echo "SAVE OK: $(basename "$FILE") = $(stat -c%s "$FILE") bytes (exit=$CODE)"
   exit 0
 else
-  echo "SAVE FAILED: no non-empty file in $DOCS/HFRecorder/ (exit=$CODE)"
+  echo "SAVE FAILED: no non-empty file in $DOCS/FleetRecorder/ (exit=$CODE)"
   exit 1
 fi

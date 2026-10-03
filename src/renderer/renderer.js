@@ -120,7 +120,7 @@ function dispatch(type) {
   for (const e of out.effects) applyEffect(e);
   state = out.state;
   render();
-  window.hf.sendRecorderState({
+  window.fleet.sendRecorderState({
     status: state.status,
     muted: state.muted,
     finishing: type === 'STOP' && out.effects.includes(RS.EFFECTS.STOP),
@@ -211,7 +211,7 @@ async function onRecordingStopped() {
   const buffer = await blob.arrayBuffer();
   const digest = await window.crypto.subtle.digest('SHA-256', buffer);
   const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  window.hf.sendRecordingStopped(buffer, {
+  window.fleet.sendRecordingStopped(buffer, {
     recordingId,
     startedAt: recordingStartedAt,
     endedAt: recordingEndedAt,
@@ -234,7 +234,7 @@ async function onRecord() {
   } catch (err) {
     teardownStreams();
     await explainCaptureFailure(err);
-    window.hf.sendRecorderState({
+    window.fleet.sendRecorderState({
       status: RS.IDLE,
       muted: false,
       event: 'capture_error',
@@ -250,7 +250,7 @@ async function explainCaptureFailure(err) {
   if (stage === 'mic') {
     // Only the mic layer is gated by Windows privacy — probe + guide there.
     let consent = { supported: false, value: 'unknown' };
-    try { consent = await window.hf.probeMicConsent(); } catch (_) {}
+    try { consent = await window.fleet.probeMicConsent(); } catch (_) {}
     if (consent.supported && consent.value === 'Deny') {
       showBanner('Windows is blocking microphone access for desktop apps. '
         + 'Open Settings and allow microphone access, then try again.', true);
@@ -273,13 +273,13 @@ el.resume.onclick = () => dispatch('RESUME');
 el.mute.onclick = () => dispatch('MUTE');
 el.unmute.onclick = () => dispatch('UNMUTE');
 el.stop.onclick = () => dispatch('STOP');
-el.openPrivacy.onclick = () => window.hf.openMicPrivacy();
+el.openPrivacy.onclick = () => window.fleet.openMicPrivacy();
 
-window.hf.onCommand((action) => {
+window.fleet.onCommand((action) => {
   if (action === 'start') onRecord();
   else dispatch(String(action).toUpperCase());
 });
-window.hf.onState((next) => {
+window.fleet.onState((next) => {
   sessionOnline = next.session === 'online';
   demoMode = Boolean(next.demoMode);
   document.getElementById('activation').style.display = demoMode ? 'none' : 'flex';
@@ -290,7 +290,7 @@ window.hf.onState((next) => {
     : 'No active identity';
   render();
 });
-window.hf.onEvent(({ event, data }) => {
+window.fleet.onEvent(({ event, data }) => {
   if (event === 'saved_local') el.output.textContent = `Saved ${data.path}`;
   if (event === 'uploaded') el.output.textContent = `Uploaded ${data.objectKey}`;
   if (event === 'metadata_written') el.output.textContent = `Complete ${data.objectKey}`;
@@ -301,7 +301,7 @@ window.hf.onEvent(({ event, data }) => {
 (async function init() {
   render();
   try {
-    const consent = await window.hf.probeMicConsent();
+    const consent = await window.fleet.probeMicConsent();
     if (consent.supported && consent.value === 'Deny') {
       showBanner('Windows microphone access for desktop apps is currently OFF. '
         + 'Recording audio will fail until it is enabled.');

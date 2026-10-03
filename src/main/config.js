@@ -1,20 +1,40 @@
 'use strict';
 
+/*
+ * config.js — runtime configuration. The rejected localhost control server is
+ * gone, so there are no listen ports. Instead the desktop is told where to make
+ * its OUTBOUND connections:
+ *   - FR_WS_URL        wss:// API Gateway WebSocket endpoint (control channel)
+ *   - FR_HTTP_API_URL  https:// API Gateway HTTP API base (token + upload)
+ *
+ * Device enrollment material (FR_DEVICE_ID / FR_DEVICE_BOOTSTRAP_SECRET) is
+ * supplied at launch and is NEVER baked into the packaged build or committed.
+ *
+ * When no WS/HTTP endpoints are configured the app runs in local demo mode:
+ * the recorder is driven by the window's own buttons and saves locally. There
+ * is still no network listener in either mode.
+ */
+
 function boolEnv(value, fallback = false) {
   if (value == null || value === '') return fallback;
   return /^(1|true|yes)$/i.test(value);
 }
 
-function loadConfig(env = process.env, argv = process.argv) {
-  const authMode = boolEnv(env.HF_AUTH) || argv.includes('--auth');
-  const demoMode = !authMode;
+function loadConfig(env = process.env) {
+  const wsUrl = env.FR_WS_URL || '';
+  const httpApiUrl = env.FR_HTTP_API_URL || '';
+  const connected = Boolean(wsUrl && httpApiUrl);
   return {
-    controlPort: Number(env.HF_CONTROL_PORT || (demoMode ? 18765 : 8765)),
-    bindAddr: '127.0.0.1',
-    backendBaseUrl: env.HF_BACKEND_BASE_URL || 'http://127.0.0.1:8787',
-    tenant: env.HF_TENANT || 'healthfirst',
-    saveLocal: boolEnv(env.HF_SAVE_LOCAL),
-    demoMode,
+    wsUrl,
+    httpApiUrl,
+    tokenEndpoint: env.FR_TOKEN_ENDPOINT
+      || (httpApiUrl ? `${httpApiUrl.replace(/\/$/, '')}/v1/auth/device-token` : ''),
+    deviceId: env.FR_DEVICE_ID || 'poc-device-01',
+    bootstrapSecret: env.FR_DEVICE_BOOTSTRAP_SECRET || '',
+    tenant: env.FR_TENANT || 'poc',
+    saveLocal: boolEnv(env.FR_SAVE_LOCAL),
+    connected,
+    demoMode: !connected,
   };
 }
 

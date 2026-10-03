@@ -1,29 +1,29 @@
 {
-  "name": "hf-recorder",
+  "name": "fleet-recorder",
   "version": "0.2.0",
   "private": true,
-  "description": "HF Recorder — screen + microphone desktop recorder (Calabrio replacement POC)",
+  "description": "Screen + microphone desktop recorder — outbound AWS WebSocket control POC",
   "main": "src/main/main.js",
   "author": "Vamshi Gujju",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
-    "test:control": "node --test test/control/*.test.js",
-    "mock:backend": "node mocks/backend/server.js",
-    "mock:flex": "node mocks/flex-console/serve.js",
+    "test": "node --test --test-timeout=20000 test/*.test.js test/ws/*.test.js",
     "smoke": "bash test/smoke/run-smoke.sh",
     "smoke:save": "bash test/save-harness/run-save-harness.sh",
     "pack": "electron-builder --win --dir",
-    "dist": "npm run pack && makensis -DSRC=\"$(pwd)/dist/win-unpacked\" -DOUTFILE=\"$(pwd)/dist/HFRecorder-Setup-$npm_package_version.exe\" -DVERSION=\"$npm_package_version\" build/installer-standalone.nsi"
+    "dist": "npm run pack && makensis -DSRC=\"$(pwd)/dist/win-unpacked\" -DOUTFILE=\"$(pwd)/dist/FleetRecorder-Setup-$npm_package_version.exe\" -DVERSION=\"$npm_package_version\" build/installer-standalone.nsi"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.healthfirst.hfrecorder",
-    "productName": "HFRecorder",
+    "appId": "com.fleetrecorder.poc",
+    "productName": "FleetRecorderPOC",
     "files": [
       "src/**/*",
       "package.json"

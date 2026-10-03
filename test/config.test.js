@@ -4,26 +4,34 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadConfig } = require('../src/main/config');
 
-test('config defaults to a controllable no-auth local demo', () => {
-  const config = loadConfig({});
-  assert.equal(config.bindAddr, '127.0.0.1');
-  assert.equal(config.controlPort, 18765);
-  assert.equal(config.saveLocal, false);
-  assert.equal(config.demoMode, true);
+test('no endpoints configured => local demo mode, no listener, no channel', () => {
+  const c = loadConfig({});
+  assert.equal(c.connected, false);
+  assert.equal(c.demoMode, true);
+  assert.equal(c.wsUrl, '');
+  assert.equal(c.httpApiUrl, '');
+  assert.equal(c.deviceId, 'poc-device-01');
 });
 
-test('bind address is fixed to loopback regardless of env', () => {
-  const config = loadConfig({ HF_BIND_ADDR: '0.0.0.0', HF_SAVE_LOCAL: 'true' });
-  assert.equal(config.bindAddr, '127.0.0.1');
-  assert.equal(config.saveLocal, true);
+test('WS + HTTP endpoints => connected mode with derived token endpoint', () => {
+  const c = loadConfig({
+    FR_WS_URL: 'wss://abc.execute-api.us-east-1.amazonaws.com/poc',
+    FR_HTTP_API_URL: 'https://def.execute-api.us-east-1.amazonaws.com',
+  });
+  assert.equal(c.connected, true);
+  assert.equal(c.demoMode, false);
+  assert.equal(c.tokenEndpoint, 'https://def.execute-api.us-east-1.amazonaws.com/v1/auth/device-token');
 });
 
-test('activation mode requires an explicit environment flag or command-line switch', () => {
-  assert.deepEqual(
-    [loadConfig({ HF_AUTH: '1' }, []), loadConfig({}, ['electron', '.', '--auth'])]
-      .map((config) => [config.demoMode, config.controlPort]),
-    [[false, 8765], [false, 8765]],
-  );
-  assert.equal(loadConfig({ HF_AUTH: '0' }, []).demoMode, true);
-  assert.equal(loadConfig({ HF_AUTH: '1', HF_CONTROL_PORT: '19000' }, []).controlPort, 19000);
+test('token endpoint and enrollment material come from the environment, never defaults in the build', () => {
+  const c = loadConfig({
+    FR_WS_URL: 'wss://x/poc',
+    FR_HTTP_API_URL: 'https://y',
+    FR_TOKEN_ENDPOINT: 'https://y/custom/token',
+    FR_DEVICE_ID: 'amaterasu-01',
+    FR_DEVICE_BOOTSTRAP_SECRET: 'runtime-only-secret',
+  });
+  assert.equal(c.tokenEndpoint, 'https://y/custom/token');
+  assert.equal(c.deviceId, 'amaterasu-01');
+  assert.equal(c.bootstrapSecret, 'runtime-only-secret');
 });
