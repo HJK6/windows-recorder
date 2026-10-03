@@ -154,7 +154,7 @@ function createWindow() {
     width: 640,
     height: 610,
     resizable: true,
-    title: 'HF Recorder',
+    title: 'Fleet Recorder',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

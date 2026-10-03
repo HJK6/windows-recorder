@@ -1,6 +1,0 @@
-# Copy to poc.tfvars (gitignored) before `terraform apply`, filling in the real
-# account id. Company deployment uses a separate, uncommitted tfvars with the
-# company account/region. Do not commit real account ids to this public repo.
-aws_account_id = "123456789012" # <- your AWS account id
-aws_region     = "us-east-1"
-# device_bootstrap_secret = ""   # optional; auto-generated if left empty

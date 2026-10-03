@@ -95,7 +95,7 @@ In the interactive session while the app runs:
 ```
 # PowerShell — show any LISTENING sockets owned by the recorder process(es):
 Get-NetTCPConnection -State Listen |
-  Where-Object { (Get-Process -Id $_.OwningProcess).ProcessName -match 'electron|HFRecorder|node' } |
+  Where-Object { (Get-Process -Id $_.OwningProcess).ProcessName -match 'electron|FleetRecorder|node' } |
   Format-Table LocalAddress,LocalPort,OwningProcess
 # IPv6 + IPv4 full view for the evidence pack:
 netstat -ano -p TCP ; netstat -ano -p TCPv6

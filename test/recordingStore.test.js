@@ -26,9 +26,9 @@ test('toBuffer throws a clear, user-visible error for an unusable payload', () =
 
 test('buildFilename stamps timestamp + sanitized recording id', () => {
   const d = new Date(2026, 6, 9, 21, 36, 5); // 2026-07-09 21:36:05 local
-  assert.equal(RSt.buildFilename('abcd1234', d), 'HFRecorder-20260709-213605-abcd1234.webm');
-  assert.equal(RSt.buildFilename('with/bad:chars!!', d), 'HFRecorder-20260709-213605-withbadc.webm', 'sanitized + 8 chars');
-  assert.equal(RSt.buildFilename('', d), 'HFRecorder-20260709-213605-recording.webm', 'empty -> recording');
+  assert.equal(RSt.buildFilename('abcd1234', d), 'FleetRecorder-20260709-213605-abcd1234.webm');
+  assert.equal(RSt.buildFilename('with/bad:chars!!', d), 'FleetRecorder-20260709-213605-withbadc.webm', 'sanitized + 8 chars');
+  assert.equal(RSt.buildFilename('', d), 'FleetRecorder-20260709-213605-recording.webm', 'empty -> recording');
 });
 
 test('saveRecording writes the exact bytes and returns the path', async () => {
@@ -39,7 +39,7 @@ test('saveRecording writes the exact bytes and returns the path', async () => {
     assert.equal(res.bytes, SAMPLE.length);
     assert.ok(fs.existsSync(res.path), 'file exists');
     assert.deepEqual(fs.readFileSync(res.path), Buffer.from(SAMPLE), 'content matches');
-    assert.equal(path.dirname(res.path), path.join(docs, 'HFRecorder'));
+    assert.equal(path.dirname(res.path), path.join(docs, 'FleetRecorder'));
   } finally {
     fs.rmSync(docs, { recursive: true, force: true });
   }
@@ -49,7 +49,7 @@ test('saveRecording does NOT create the output dir when the payload is unusable'
   const docs = fs.mkdtempSync(path.join(os.tmpdir(), 'hfrec-'));
   try {
     await assert.rejects(() => RSt.saveRecording(docs, undefined, 'x'), /unsupported recording payload/);
-    assert.equal(fs.existsSync(path.join(docs, 'HFRecorder')), false, 'no empty dir left behind');
+    assert.equal(fs.existsSync(path.join(docs, 'FleetRecorder')), false, 'no empty dir left behind');
   } finally {
     fs.rmSync(docs, { recursive: true, force: true });
   }

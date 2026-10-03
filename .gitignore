@@ -8,7 +8,7 @@ recordings/
 mocks/backend/.data/
 
 # Terraform — never commit state, plans, or variable files (may hold company
-# account IDs, endpoints, secrets). Only *.tf source and *.tfvars.example ship.
+# account IDs, endpoints, secrets). Only *.tf source ships; tfvars live locally.
 aws/.terraform/
 aws/.terraform.lock.hcl
 aws/build/
@@ -16,7 +16,6 @@ aws/build/
 **/*.tfstate.*
 **/*.tfplan
 **/*.tfvars
-!**/*.tfvars.example
 crash.log
 # Local secrets / env / evidence — keep out of the public repo
 .env

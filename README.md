@@ -1,4 +1,4 @@
-# HF Recorder — AWS WebSocket control POC
+# Fleet Recorder — AWS WebSocket control POC
 
 A proof-of-concept screen + microphone desktop recorder whose control plane is an
 **outbound-only AWS WebSocket channel**, replacing the previously rejected
@@ -59,7 +59,7 @@ Prereqs: Terraform ≥ 1.6, AWS creds for your POC account, `node`.
 
 ```
 cd aws
-cp poc.tfvars.example poc.tfvars          # our account + region
+printf 'aws_account_id = "<your-account-id>"\naws_region = "us-east-1"\n' > poc.tfvars  # gitignored
 ( cd lambda && npm install --omit=dev )   # bundle the Lambda SDK deps
 terraform init
 bash scripts/account-guard.sh             # refuses any account but ours

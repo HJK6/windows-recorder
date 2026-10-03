@@ -137,10 +137,17 @@ async function controlToken(event) {
 async function deviceToken(event) {
   const body = parseBody(event);
   if (!body.deviceId || !body.bootstrapSecret) return json(400, { error: 'device_and_secret_required' });
+  // Fail closed. hasOwnProperty guards against inherited keys (e.g. __proto__)
+  // minting a token; require the stored value to be a real string secret.
+  if (typeof body.deviceId !== 'string'
+    || !Object.prototype.hasOwnProperty.call(DEVICE_ENROLLMENT, body.deviceId)) {
+    return json(401, { error: 'bad_enrollment_secret' });
+  }
   const expected = DEVICE_ENROLLMENT[body.deviceId];
-  // Fail closed: unknown device OR wrong per-device secret. A device holding its
-  // own secret cannot mint a token for a different deviceId.
-  if (!expected || !tsEqual(body.bootstrapSecret, expected)) return json(401, { error: 'bad_enrollment_secret' });
+  if (typeof expected !== 'string' || typeof body.bootstrapSecret !== 'string'
+    || !tsEqual(body.bootstrapSecret, expected)) {
+    return json(401, { error: 'bad_enrollment_secret' });
+  }
   const token = jwt.sign({ sub: body.deviceId, scope: 'device upload' }, SECRET, { expiresInSec: DEVICE_TOKEN_TTL });
   return json(200, { token, expiresAt: new Date(Date.now() + DEVICE_TOKEN_TTL * 1000).toISOString() });
 }

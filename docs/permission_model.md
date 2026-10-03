@@ -1,4 +1,4 @@
-# HF Recorder — permission model
+# Fleet Recorder — permission model
 
 Capturing screen + microphone on Windows from an Electron (Chromium) desktop app
 requires clearing **two independent permission layers**. Conflating them is the
@@ -70,4 +70,4 @@ Layer 1 needs no fleet action — it is owned entirely by the app.
 
 This split (app owns layer 1; MDM/GPO owns layer 2; installer pre-grant is a
 fallback for unmanaged/POC machines) is the recommendation carried into the
-`hf-recorder__upload_auth_permissions_arch` architecture spec.
+`fleet-recorder__upload_auth_permissions_arch` architecture spec.
