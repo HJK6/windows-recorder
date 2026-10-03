@@ -92,12 +92,18 @@ Each device has its own enrollment secret (there is no single `device_bootstrap_
 Select it for your `FR_DEVICE_ID` and inject it privately — the helper fails closed if
 the device isn't enrolled and never prints the secret:
 
+Assign the secret to a variable and STOP on failure before launching —
+`export VAR=$(helper)` would hide a failed lookup and launch with an empty secret:
+
 ```
 export FR_WS_URL="$(terraform -chdir=aws output -raw ws_url)"
 export FR_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)"
 export FR_DEVICE_ID="amaterasu-01"
 # From the enrollment map in local state (or drop --from-terraform to read SSM):
-export FR_DEVICE_BOOTSTRAP_SECRET="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID" --from-terraform)"
+secret="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID" --from-terraform)" \
+  || { echo "enrollment lookup failed for $FR_DEVICE_ID — not launching" >&2; exit 1; }
+[ -n "$secret" ] || { echo "empty enrollment secret — not launching" >&2; exit 1; }
+export FR_DEVICE_BOOTSTRAP_SECRET="$secret"
 npm start
 ```
 

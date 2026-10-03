@@ -25,10 +25,15 @@ There is NO single `device_bootstrap_secret`. Each device has its own secret in 
 `device_enrollment` map (and in SSM `/fleet-recorder-poc/enroll/<deviceId>`). On
 Amaterasu, select amaterasu-01's secret and inject it PRIVATELY — fail closed if the
 device is not enrolled, and never echo/log the value:
+Assign separately and STOP on failure before launch (do NOT use
+`export VAR=$(helper)` — it hides a failed lookup and launches with an empty secret):
 ```
 export FR_DEVICE_ID=amaterasu-01
 # cross-host default reads SSM (needs our-account creds); or add --from-terraform on the deploy host:
-export FR_DEVICE_BOOTSTRAP_SECRET="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID")"
+secret="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID")" \
+  || { echo "enrollment lookup failed for $FR_DEVICE_ID — not launching" >&2; exit 1; }
+[ -n "$secret" ] || { echo "empty enrollment secret — not launching" >&2; exit 1; }
+export FR_DEVICE_BOOTSTRAP_SECRET="$secret"
 ```
 
 ## 2. Launch the desktop (connected mode, SESSION 1, synthetic media)
@@ -82,13 +87,22 @@ Coordinate the UI window with the front desk first. While RECORDING, drop egress
 ~20 s by blocking **only the recorder executable's** outbound (NOT an API IP/range —
 that is brittle and over-broad), with **guaranteed cleanup** via `try/finally` so the
 rule is always removed even on error/Ctrl-C:
+Use the EXACT recorder process you launched — not `Get-Process electron | First`,
+which may pick an unrelated Electron app. Capture the recorder PID at launch (the
+interactive-token task's started process id), then resolve its executable from THAT pid:
 ```
-# PowerShell (admin). Scope the block to the recorder's own electron.exe path.
-$exe = (Get-Process electron | Select-Object -Expand Path -First 1)   # or the launched app's exact exe
-New-NetFirewallRule -DisplayName fleet-poc-drop -Direction Outbound -Program "$exe" -Action Block | Out-Null
+# PowerShell (admin). $recorderPid = the PID recorded when the task launched the app.
+$proc = Get-Process -Id $recorderPid -ErrorAction Stop         # fail if that PID is gone
+$exe  = $proc.Path                                             # exact executable of OUR recorder
+$rule = "fleet-poc-drop-$recorderPid"                          # unique, owned rule name
+New-NetFirewallRule -DisplayName $rule -Direction Outbound -Program "$exe" -Action Block | Out-Null
 try { Start-Sleep -Seconds 20 }
-finally { Remove-NetFirewallRule -DisplayName fleet-poc-drop -ErrorAction SilentlyContinue }
-# Verify removal: Get-NetFirewallRule -DisplayName fleet-poc-drop  => no rule.
+finally {
+  Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue
+  if (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue) {
+    Write-Error "firewall rule $rule NOT removed — remove it manually"    # removal readback
+  } else { "firewall rule $rule removed" }
+}
 ```
 This is the method the accepted P5 run used (executable-scoped outbound block → the
 recorder's socket errors and reconnects while everything else keeps working). The
