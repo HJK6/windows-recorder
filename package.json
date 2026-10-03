@@ -2,7 +2,7 @@
   "name": "hf-recorder",
   "version": "0.2.0",
   "private": true,
-  "description": "HF Recorder — screen + microphone desktop recorder (Calabrio replacement POC)",
+  "description": "Screen + microphone desktop recorder — outbound AWS WebSocket control POC",
   "main": "src/main/main.js",
   "author": "Vamshi Gujju",
   "license": "UNLICENSED",
@@ -22,8 +22,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.healthfirst.hfrecorder",
-    "productName": "HFRecorder",
+    "appId": "com.fleetrecorder.poc",
+    "productName": "FleetRecorderPOC",
     "files": [
       "src/**/*",
       "package.json"

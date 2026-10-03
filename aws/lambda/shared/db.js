@@ -155,6 +155,20 @@ async function recordAck(recordingId, revision, status, observedState) {
   }));
 }
 
+// Persist an upload grant so completion verifies against the ISSUED grant
+// (bound object key + expected size + sha), not caller-supplied values.
+async function putUploadGrant(uploadGrantId, grant) {
+  await doc.send(new PutCommand({
+    TableName: TABLE,
+    Item: { ...key(`GRANT#${uploadGrantId}`, 'META'), ...grant, createdAt: Date.now() },
+  }));
+}
+
+async function getUploadGrant(uploadGrantId) {
+  const r = await doc.send(new GetCommand({ TableName: TABLE, Key: key(`GRANT#${uploadGrantId}`, 'META') }));
+  return r.Item || null;
+}
+
 async function markVerified(recordingId, objectKey, sizeBytes, checksum) {
   await doc.send(new PutCommand({
     TableName: TABLE,
@@ -169,5 +183,5 @@ module.exports = {
   putConnection, getConnection, deleteConnection, markConnectionReady, touchConnection,
   setDeviceConnection, getDeviceConnection, clearDeviceConnectionIfMatches, listConnectedDevices,
   createRecording, getRecording, setDesiredState, getActiveRecording,
-  recordCommand, recordAck, markVerified,
+  recordCommand, recordAck, putUploadGrant, getUploadGrant, markVerified,
 };

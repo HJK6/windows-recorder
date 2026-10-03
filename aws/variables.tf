@@ -21,11 +21,10 @@ variable "name_prefix" {
   default     = "fleet-recorder-poc"
 }
 
-variable "device_bootstrap_secret" {
-  description = "Device enrollment material the desktop presents to mint a device token. Leave empty to auto-generate. Supplied to the desktop at runtime, never committed."
-  type        = string
-  default     = ""
-  sensitive   = true
+variable "enrolled_device_ids" {
+  description = "Enrolled POC device ids. Each gets its OWN generated enrollment secret, so a device cannot mint a token for another deviceId."
+  type        = list(string)
+  default     = ["amaterasu-01", "poc-curl-01"]
 }
 
 variable "device_token_ttl_seconds" {

@@ -66,9 +66,21 @@ async function onHeartbeat(event) {
 }
 
 async function onAck(event, body) {
-  if (body.recordingId && typeof body.revision === 'number') {
-    await db.recordAck(body.recordingId, body.revision, body.status || 'APPLIED', body.observedState || null);
+  if (!body.recordingId || typeof body.revision !== 'number') return { statusCode: 400, body: 'bad ack' };
+  // Authorize the ack: the acking connection's device must own this recording,
+  // and the ack's revision must not exceed the server's issued revision. This
+  // stops a device acking another device's recording or inventing a state.
+  const conn = await db.getConnection(event.requestContext.connectionId);
+  const rec = await db.getRecording(body.recordingId);
+  if (!conn || !rec || rec.deviceId !== conn.deviceId) {
+    console.warn('rejected ack: device/recording mismatch');
+    return { statusCode: 403, body: 'forbidden' };
   }
+  if (typeof rec.revision === 'number' && body.revision > rec.revision) {
+    console.warn('rejected ack: revision ahead of issued');
+    return { statusCode: 409, body: 'stale' };
+  }
+  await db.recordAck(body.recordingId, body.revision, body.status || 'APPLIED', body.observedState || null);
   return { statusCode: 200, body: 'ack' };
 }
 

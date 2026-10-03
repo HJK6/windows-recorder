@@ -20,7 +20,10 @@ const { createSender } = require('../shared/mgmt');
 const { renderAppPage } = require('./app-page');
 
 const SECRET = process.env.TOKEN_SIGNING_SECRET;
-const DEVICE_BOOTSTRAP_SECRET = process.env.DEVICE_BOOTSTRAP_SECRET;
+// Per-device enrollment material: { deviceId: secret }. Each enrolled device has
+// its OWN secret, so a device cannot mint a token for another deviceId.
+let DEVICE_ENROLLMENT = {};
+try { DEVICE_ENROLLMENT = JSON.parse(process.env.DEVICE_ENROLLMENT || '{}'); } catch (_) { DEVICE_ENROLLMENT = {}; }
 const BROWSER_LOGIN_KEY = process.env.BROWSER_LOGIN_KEY;
 const BUCKET = process.env.BUCKET_NAME;
 const KMS_KEY_ID = process.env.KMS_KEY_ID;
@@ -31,6 +34,12 @@ const PRESIGN_TTL = 600;
 
 const s3 = new S3Client({});
 const sendToDevice = WS_MGMT_ENDPOINT ? createSender(WS_MGMT_ENDPOINT) : null;
+
+function tsEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
 
 const json = (statusCode, body) => ({
   statusCode,
@@ -128,7 +137,10 @@ async function controlToken(event) {
 async function deviceToken(event) {
   const body = parseBody(event);
   if (!body.deviceId || !body.bootstrapSecret) return json(400, { error: 'device_and_secret_required' });
-  if (body.bootstrapSecret !== DEVICE_BOOTSTRAP_SECRET) return json(401, { error: 'bad_enrollment_secret' });
+  const expected = DEVICE_ENROLLMENT[body.deviceId];
+  // Fail closed: unknown device OR wrong per-device secret. A device holding its
+  // own secret cannot mint a token for a different deviceId.
+  if (!expected || !tsEqual(body.bootstrapSecret, expected)) return json(401, { error: 'bad_enrollment_secret' });
   const token = jwt.sign({ sub: body.deviceId, scope: 'device upload' }, SECRET, { expiresInSec: DEVICE_TOKEN_TTL });
   return json(200, { token, expiresAt: new Date(Date.now() + DEVICE_TOKEN_TTL * 1000).toISOString() });
 }
@@ -148,6 +160,17 @@ async function uploadGrant(event, recordingId) {
   // signature minimal avoids presigned-header mismatches.
   const cmd = new PutObjectCommand({ Bucket: BUCKET, Key: objectKey });
   const url = await getSignedUrl(s3, cmd, { expiresIn: PRESIGN_TTL });
+  const uploadGrantId = crypto.randomUUID();
+  // Bind the grant: completion verifies the object stored at THIS key matches the
+  // size + sha declared here, for this device + recording. Caller-supplied values
+  // at completion are ignored in favor of these.
+  await db.putUploadGrant(uploadGrantId, {
+    recordingId,
+    deviceId: rec.deviceId,
+    objectKey,
+    expectedSizeBytes: Number(body.sizeBytes),
+    expectedSha256: String(body.sha256),
+  });
   return json(200, {
     method: 'PUT',
     url,
@@ -156,7 +179,7 @@ async function uploadGrant(event, recordingId) {
       'If-None-Match': '*',
     },
     objectKey,
-    uploadGrantId: crypto.randomUUID(),
+    uploadGrantId,
   });
 }
 
@@ -167,23 +190,29 @@ async function uploadComplete(event, recordingId) {
   if (!rec) return json(404, { error: 'unknown_recording' });
   if (rec.deviceId !== auth.payload.sub) return json(403, { error: 'wrong_target_device' });
   const body = parseBody(event);
-  // Verify size + SHA-256 server-side by reading the stored object back. This is
-  // independent of anything the client claims (the client's "done" is not proof).
+  // Verify against the ISSUED grant, not caller-supplied values. Load the grant,
+  // confirm it belongs to this device + recording, then read the object stored at
+  // the grant's bound key and check its size + SHA-256 against the grant.
+  const grant = body.uploadGrantId ? await db.getUploadGrant(body.uploadGrantId) : null;
+  if (!grant) return json(404, { error: 'unknown_grant' });
+  if (grant.deviceId !== auth.payload.sub || grant.recordingId !== recordingId) {
+    return json(403, { error: 'grant_mismatch' });
+  }
   let obj;
   try {
-    obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: body.objectKey }));
+    obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: grant.objectKey }));
   } catch (err) {
     return json(404, { error: 'object_not_found', detail: err.name });
   }
   const bytes = Buffer.from(await obj.Body.transformToByteArray());
   const actualSha = crypto.createHash('sha256').update(bytes).digest('hex');
-  const sizeOk = bytes.byteLength === Number(body.sizeBytes);
-  const checksumOk = actualSha === String(body.sha256);
+  const sizeOk = bytes.byteLength === Number(grant.expectedSizeBytes);
+  const checksumOk = actualSha === String(grant.expectedSha256);
   if (!sizeOk || !checksumOk) {
     return json(422, { verified: false, error: 'verification_failed', sizeOk, checksumOk });
   }
-  await db.markVerified(recordingId, body.objectKey, bytes.byteLength, actualSha);
-  return json(200, { verified: true, sizeBytes: bytes.byteLength, checksumSha256: actualSha });
+  await db.markVerified(recordingId, grant.objectKey, bytes.byteLength, actualSha);
+  return json(200, { verified: true, objectKey: grant.objectKey, sizeBytes: bytes.byteLength, checksumSha256: actualSha });
 }
 
 function appPage(event) {

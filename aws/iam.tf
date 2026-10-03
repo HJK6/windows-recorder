@@ -11,8 +11,12 @@ data "aws_iam_policy_document" "lambda_assume" {
 # Basic execution (CloudWatch Logs) reused by all three roles.
 data "aws_iam_policy_document" "logs" {
   statement {
-    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:*"]
+    actions = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+    # Scoped to this project's function log groups only, not the whole account.
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${local.prefix}-*",
+      "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${local.prefix}-*:*",
+    ]
   }
 }
 
@@ -27,13 +31,19 @@ resource "aws_iam_role_policy" "authorizer_logs" {
 }
 
 # ---- Shared control-plane policy fragments ---------------------------------
-data "aws_iam_policy_document" "dynamo" {
+# WS handler uses item CRUD only (no Scan/Query).
+data "aws_iam_policy_document" "dynamo_ws" {
   statement {
-    actions = [
-      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-      "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
-    ]
-    resources = [aws_dynamodb_table.control.arn, "${aws_dynamodb_table.control.arn}/index/*"]
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.control.arn]
+  }
+}
+
+# HTTP handler uses item reads/writes plus a Scan (listConnectedDevices); no Delete/Query.
+data "aws_iam_policy_document" "dynamo_http" {
+  statement {
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"]
+    resources = [aws_dynamodb_table.control.arn]
   }
 }
 
@@ -56,7 +66,7 @@ resource "aws_iam_role_policy" "ws_logs" {
 }
 resource "aws_iam_role_policy" "ws_dynamo" {
   role   = aws_iam_role.ws.id
-  policy = data.aws_iam_policy_document.dynamo.json
+  policy = data.aws_iam_policy_document.dynamo_ws.json
 }
 resource "aws_iam_role_policy" "ws_manage" {
   role   = aws_iam_role.ws.id
@@ -85,7 +95,7 @@ resource "aws_iam_role_policy" "http_logs" {
 }
 resource "aws_iam_role_policy" "http_dynamo" {
   role   = aws_iam_role.http.id
-  policy = data.aws_iam_policy_document.dynamo.json
+  policy = data.aws_iam_policy_document.dynamo_http.json
 }
 resource "aws_iam_role_policy" "http_manage" {
   role   = aws_iam_role.http.id

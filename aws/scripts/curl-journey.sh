@@ -13,8 +13,8 @@ tf() { terraform -chdir="$AWS_DIR" output -raw "$1"; }
 WS_URL="$(tf ws_url)"
 HTTP_API="$(tf http_api_url)"
 LOGIN_KEY="$(tf browser_login_key)"
-BOOTSTRAP="$(tf device_bootstrap_secret)"
-DEVICE_ID="poc-curl-$$-$RANDOM"
+DEVICE_ID="poc-curl-01"
+BOOTSTRAP="$(terraform -chdir="$AWS_DIR" output -json device_enrollment | python3 -c 'import sys,json;print(json.load(sys.stdin)["poc-curl-01"])')"
 
 echo "== HTTP API: $HTTP_API"
 echo "== WS URL:   $WS_URL"

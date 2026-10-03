@@ -1,8 +1,8 @@
 locals {
   prefix = var.name_prefix
-  # Server-side secrets: generated and kept only in Lambda env + state (never in
-  # the repo, build, or logs). State itself must be protected (see README).
-  device_bootstrap_secret = var.device_bootstrap_secret != "" ? var.device_bootstrap_secret : random_password.device_bootstrap.result
+  # Per-device enrollment map { deviceId: secret } — server-side only (Lambda env +
+  # state), never in the repo/build/logs. State itself must be protected (README).
+  device_enrollment = { for d in var.enrolled_device_ids : d => random_password.device_secret[d].result }
 }
 
 resource "random_password" "token_signing" {
@@ -10,9 +10,10 @@ resource "random_password" "token_signing" {
   special = false
 }
 
-resource "random_password" "device_bootstrap" {
-  length  = 32
-  special = false
+resource "random_password" "device_secret" {
+  for_each = toset(var.enrolled_device_ids)
+  length   = 32
+  special  = false
 }
 
 resource "random_password" "browser_login_key" {

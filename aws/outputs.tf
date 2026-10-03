@@ -20,9 +20,9 @@ output "browser_login_key" {
   sensitive   = true
 }
 
-output "device_bootstrap_secret" {
-  description = "Device enrollment material for HF_DEVICE_BOOTSTRAP_SECRET on the workstation."
-  value       = local.device_bootstrap_secret
+output "device_enrollment" {
+  description = "Per-device enrollment map { deviceId: secret }. Each device uses its own secret for HF_DEVICE_BOOTSTRAP_SECRET."
+  value       = local.device_enrollment
   sensitive   = true
 }
 
