@@ -15,12 +15,20 @@ output` at run time; never paste them into the repo, logs, or chat.
 - A synthetic screen (test pattern / looping video window) and a mic test tone or
   the "Stereo Mix"/virtual mic; or accept silence (silence is not failure).
 
-## 1. Endpoints (read on the deploy host, pass over to Amaterasu securely)
+## 1. Endpoints + per-device secret (resolve on-host, never print the secret)
 ```
 terraform -chdir=aws output -raw ws_url
 terraform -chdir=aws output -raw http_api_url
-terraform -chdir=aws output -raw device_bootstrap_secret   # sensitive
 terraform -chdir=aws output -raw app_url                   # sensitive (has ?k=)
+```
+There is NO single `device_bootstrap_secret`. Each device has its own secret in the
+`device_enrollment` map (and in SSM `/fleet-recorder-poc/enroll/<deviceId>`). On
+Amaterasu, select amaterasu-01's secret and inject it PRIVATELY — fail closed if the
+device is not enrolled, and never echo/log the value:
+```
+export FR_DEVICE_ID=amaterasu-01
+# cross-host default reads SSM (needs our-account creds); or add --from-terraform on the deploy host:
+export FR_DEVICE_BOOTSTRAP_SECRET="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID")"
 ```
 
 ## 2. Launch the desktop (connected mode, SESSION 1, synthetic media)
@@ -31,12 +39,12 @@ task** (the `Agent Open Model` pattern in `machine_amaterasu.md`), from WSL, so
 the GUI runs in the operator's console session. Use **Chromium fake media** so
 the screen + mic are synthetic and silent (no real content/sound):
 
-Env for the run:
+Env for the run (FR_DEVICE_BOOTSTRAP_SECRET resolved as in §1, never printed):
 ```
 FR_WS_URL=<ws_url>
 FR_HTTP_API_URL=<http_api_url>
 FR_DEVICE_ID=amaterasu-01
-FR_DEVICE_BOOTSTRAP_SECRET=<device_bootstrap_secret>
+FR_DEVICE_BOOTSTRAP_SECRET=<from aws/scripts/device-secret.sh "$FR_DEVICE_ID">
 FR_FAKE_MEDIA=1            # Chromium --use-fake-device-for-media-stream + --use-fake-ui-for-media-stream
 ```
 
@@ -70,12 +78,21 @@ a state optimistically). Capture screenshots of page + window at each step.
   calls return 401. Record both.
 
 ## 5. Proof 3 — reconnect after a network drop (no duplicate capture)
-While RECORDING, drop egress briefly, e.g. block the endpoint for ~20 s:
+Coordinate the UI window with the front desk first. While RECORDING, drop egress for
+~20 s by blocking **only the recorder executable's** outbound (NOT an API IP/range —
+that is brittle and over-broad), with **guaranteed cleanup** via `try/finally` so the
+rule is always removed even on error/Ctrl-C:
 ```
-# PowerShell (admin), outbound block to API Gateway, then remove it:
-New-NetFirewallRule -DisplayName fleet-poc-drop -Direction Outbound -Action Block -RemoteAddress <api-ip-or-range>
-Start-Sleep 20; Remove-NetFirewallRule -DisplayName fleet-poc-drop
+# PowerShell (admin). Scope the block to the recorder's own electron.exe path.
+$exe = (Get-Process electron | Select-Object -Expand Path -First 1)   # or the launched app's exact exe
+New-NetFirewallRule -DisplayName fleet-poc-drop -Direction Outbound -Program "$exe" -Action Block | Out-Null
+try { Start-Sleep -Seconds 20 }
+finally { Remove-NetFirewallRule -DisplayName fleet-poc-drop -ErrorAction SilentlyContinue }
+# Verify removal: Get-NetFirewallRule -DisplayName fleet-poc-drop  => no rule.
 ```
+This is the method the accepted P5 run used (executable-scoped outbound block → the
+recorder's socket errors and reconnects while everything else keeps working). The
+accepted reconnect receipt stands; do not re-run real capture for this docs fix.
 Expect: capture continues through the drop; on restore the client reconnects and
 re-acks the SAME recordingId; the encoder is NOT restarted; exactly one recording
 is produced. Confirm via the window state and the single uploaded object.
