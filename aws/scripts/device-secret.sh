@@ -34,7 +34,13 @@ case "$SRC" in
     val="$(terraform -chdir="$HERE/.." output -json device_enrollment 2>/dev/null \
       | python3 -c 'import sys,json
 m=json.load(sys.stdin)
-print(m.get(sys.argv[1], "") if isinstance(m, dict) else "")' "$DEVICE_ID" 2>/dev/null || true)"
+v=m.get(sys.argv[1]) if isinstance(m, dict) else None
+# Accept ONLY a nonempty string; reject null/bool/number/list/object (no stdout,
+# nonzero exit) so a non-string enrollment value can never become a secret.
+if isinstance(v, str) and v:
+    sys.stdout.write(v)
+else:
+    sys.exit(3)' "$DEVICE_ID" 2>/dev/null || true)"
     ;;
   *)
     echo "device-secret: unknown source '$SRC' (use --from-ssm or --from-terraform)" >&2
