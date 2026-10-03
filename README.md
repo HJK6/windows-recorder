@@ -1,122 +1,130 @@
-# HF Recorder (POC)
+# HF Recorder — AWS WebSocket control POC
 
-Screen + microphone desktop recorder — a proof-of-concept replacement for the
-Calabrio recording client used by Health First agents. It captures screen and
-microphone media, while a loopback HTTP control API lets a browser page drive the
-recorder with plain request/response calls (no auth). The included local backend
-mocks token validation, presigned upload, and metadata persistence for the
-retained activation path; production AWS design remains in the separate
-`hf-recorder__upload_auth_permissions_arch` spec.
+A proof-of-concept screen + microphone desktop recorder whose control plane is an
+**outbound-only AWS WebSocket channel**, replacing the previously rejected
+localhost control server. The desktop opens a single encrypted outbound
+connection to API Gateway; a browser page talks HTTPS to AWS; AWS pushes narrowly
+scoped commands down the desktop's connection; media uploads directly to private
+S3 by presigned PUT. **There is no network listener on the workstation.**
 
-## What it does
+This POC proves one desktop client on an architecture designed to scale. It is
+**not** fleet/production qualified. See [Future work](#future-work).
 
-- Captures **screen video** (primary display) + **microphone audio**.
-- Merges both into one WebM via a single `MediaRecorder` over a combined
-  `MediaStream` (no post-hoc muxing, no A/V drift).
-- Controls: **Record / Pause / Resume / Mute / Unmute / Stop**.
-  - **Pause** halts the whole recording (video + audio); **Resume** continues.
-  - **Mute** silences the microphone while **video keeps recording**
-    (`audioTrack.enabled = false`); **Unmute** restores audio.
-- Boots in local no-auth mode with desktop controls and the loopback HTTP control API
-  at `http://127.0.0.1:18765` (open to any origin, loopback-only); recordings save
-  under `Documents/HFRecorder`.
-- Retains the token-activation/upload code (and its unit tests) for later re-enable;
-  it is off the runtime path in this build — see [Re-enabling auth](#re-enabling-auth).
-- Optionally saves locally when `HF_SAVE_LOCAL=true`.
+## What the POC proves
 
-Not in v1: webcam, system/loopback audio, real call-audio, production endpoint
-wiring, token auto-refresh, tray/autostart packaging, or code signing.
+1. Browser **start / pause / resume / stop**, each confirmed by the desktop's
+   **applied acknowledgment** (the UI shows a confirmed state only from an ack).
+2. **Authorization denial** — expired / wrong-scope / tampered / wrong-target
+   tokens are rejected.
+3. **Reconnect after a network drop** with no duplicate capture (the encoder is
+   not restarted; the recording keeps its identity).
+4. **Upload on stop**, verified by size + SHA-256 checksum at the backend.
+5. **No application network listener** (port/listener scan, incl. IPv6).
 
 ## Architecture
 
 ```
-src/
-  shared/recorderState.js   pure state machine (record/pause/resume/mute/unmute/stop)
-                            — emits "effects" the renderer + smoke apply to real objects
-  shared/applyEffect.js     shipped effect layer: effect -> MediaRecorder/track action
-  shared/permissions.js     pure permission logic (capture-grant + two-key mic consent)
-  shared/sessionState.js    pure activation and fail-closed state machine
-  main/main.js              Electron main: service lifecycle, IPC, activation and upload wiring
-  main/control-server.js    Electron-free loopback HTTP control API (command + status)
-  main/activation.js        validate, presign, raw upload, and metadata client
-  main/capture-session.js   permission + getDisplayMedia wiring (shared with the smoke)
-  main/preload.js           narrow contextBridge API (window.hf.*)
-  renderer/index.html       UI
-  renderer/renderer.js      wires DOM + state machine -> MediaRecorder + tracks
-build/installer-standalone.nsi  NSIS installer (native makensis): per-user install,
-                            mic ConsentStore pre-grant, shortcuts, uninstaller
-test/*.test.js              fast unit tests: state machines, permissions, effect layer
-test/control/               loopback control and mock-backend integration tests
-mocks/                      fake Flex console and four-contract local backend
-test/smoke/                 headless fake-device capture smoke (xvfb + ffprobe)
-docs/permission_model.md    the two-layer permission model, in detail
+Browser page ── HTTPS ─▶ API Gateway HTTP API ─▶ Lambda (control) ─▶ DynamoDB (state)
+                                                        │
+                                                        ▼  ApiGateway Management API
+Windows desktop ◀── WSS (outbound, desktop-initiated) ── API Gateway WebSocket API
+      │                                                  ($connect Lambda authorizer)
+      └── HTTPS presigned PUT ─▶ private KMS-encrypted S3 ─▶ (verify size + checksum)
 ```
 
-The state machine is deliberately framework-free so the pause-vs-mute semantics
-are unit-tested without Electron or a real recorder.
+- `src/main/ws-client.js` — outbound WSS client: hello / heartbeat / command /
+  applied-ack / jittered reconnect; survives a drop without restarting capture.
+- `src/main/identity.js` — `IdentityProvider` interface + mock IdP (short-lived,
+  scoped, signed device tokens via device enrollment material). Swap in real
+  SSO / Twilio Flex validation later with no handler change.
+- `src/main/upload.js` — just-in-time upload grant → presigned PUT → verified complete.
+- `src/shared/jwt.js` — HS256 sign/verify (no external deps), fail-closed.
+- `aws/` — Terraform root + the three control Lambdas (`aws/lambda/`).
+- The browser control page is served same-origin at `GET /app` (no CORS, no
+  local web server); its source is `aws/lambda/http/app-page.js`.
 
-## Develop
+## Tests
 
-```bash
+```
 npm install
-npm test        # fast pure-logic tests + control-API unit test + standalone-page check
-npm run test:control # loopback HTTP control API + retained activation/upload unit gate
-npm run smoke   # headless fake-device capture smoke (Linux: needs xvfb + ffmpeg)
-npm start       # launches the Electron app
+npm test            # pure state machines, ws-client, identity, upload, jwt, app page
 ```
 
-`npm start` uses the installed default: no auth, control API on `127.0.0.1:18765`. The
-app does not host a website. The standalone static demo under
-`demo/windows/HF-Recorder-Demo.html` opens directly via `file://` in Edge or Chrome and
-drives the app with plain HTTP calls (`GET /status`, `POST /start|stop|pause|resume|mute|unmute`).
+The in-tree mock WebSocket server (`test/ws/mock-ws-server.js`) is **test-only**
+and is never imported by the packaged app.
 
-## Re-enabling auth
+## Deploy (our AWS account only)
 
-Token activation is off the runtime path in this build but retained in the tree:
-`src/main/activation.js` (validate → presign → upload → metadata) plus its unit gate
-`test/control/activation.test.js`, and the dormant `activate()`/`deactivate()` wiring in
-`src/main/main.js`. The loopback control API is command-only, so re-enabling the runtime
-flow means (1) launch with `HF_AUTH=1` or `--auth` (boots fail-closed/offline), and
-(2) add an `activate` route to `src/main/control-server.js` that calls the retained
-`activate()`. The mock backend/flex console for that work run via `npm run mock:backend`
-and `npm run mock:flex` (defaults: `127.0.0.1:8765` control, `127.0.0.1:8787` backend,
-`127.0.0.1:8788` console); the control bind is always fixed to `127.0.0.1`.
+Prereqs: Terraform ≥ 1.6, AWS creds for your POC account, `node`.
 
-Real screen/microphone capture and the Windows permission behavior must be
-validated on Windows (see docs/permission_model.md). A WSLg/Linux dev run
-exercises the UI and logic but not the real Windows privacy layer.
-
-## Build the Windows installer (the `.exe`)
-
-Prerequisites: **Node 20+** and **`makensis`** (`sudo apt install nsis` on
-Linux/WSL; already on most Windows NSIS installs). No wine required.
-
-```bash
-npm install            # once, to fetch electron + electron-builder
-npm run dist           # -> dist/HFRecorder-Setup-<version>.exe   (~106 MB)
+```
+cd aws
+cp poc.tfvars.example poc.tfvars          # our account + region
+( cd lambda && npm install --omit=dev )   # bundle the Lambda SDK deps
+terraform init
+bash scripts/account-guard.sh             # refuses any account but ours
+terraform plan  -var-file=poc.tfvars -out=build/poc.tfplan
+terraform apply build/poc.tfplan
 ```
 
-`npm run dist` runs two steps: `electron-builder --win --dir` packs the app into
-`dist/win-unpacked/` (no signing/rcedit, so no wine), then **native `makensis`**
-compiles `build/installer-standalone.nsi` around it. The `<version>` comes from
-`package.json`.
+The provider's `allowed_account_ids` and a `check` block hard-fail on any account
+but your configured account / us-east-1. Every resource is tagged `project=fleet-recorder-poc`,
+pay-per-request, no reserved capacity.
 
-The resulting installer is **per-user** (no admin), **silent-install capable**
-(`HFRecorder-Setup-<ver>.exe /S`, for Intune/GPO fleet rollout), sets the mic
-ConsentStore pre-grant, creates Desktop + Start-menu shortcuts, and registers an
-uninstaller in Add/Remove Programs. It is **unsigned** for the POC (expect a
-SmartScreen "More info → Run anyway") — code signing is a production follow-up.
+Outputs (read with `terraform output`): `ws_url`, `http_api_url`, `app_url`
+(sensitive — includes the browser login key), `device_bootstrap_secret`
+(sensitive), `media_bucket`, `control_table`.
 
-To uninstall: Add/Remove Programs → "HF Recorder", or run
-`%LOCALAPPDATA%\Programs\HFRecorder\Uninstall.exe` (`/S` for silent).
+### Prove the control path (synthetic device, no UI)
 
-## Permissions (short version)
+```
+bash scripts/curl-journey.sh
+```
 
-Two independent layers must both allow capture:
+Starts a synthetic headless device (reusing the real desktop modules), then drives
+start → applied-ack → pause/resume → stop → checksum-verified upload, and checks
+authorization denial. Prints `CURL JOURNEY PASS`.
 
-1. **In-app (Chromium/Electron)** — auto-granted by the app; no user prompt.
-2. **Windows OS privacy** (Settings → Privacy → Microphone) — the installer
-   makes a best-effort per-user pre-grant, and the app detects a denied state
-   and deep-links the user to the setting. The **production** fleet answer is
-   Intune/GPO policy, not the installer hack. Full detail:
-   [docs/permission_model.md](docs/permission_model.md).
+### Run the real desktop (connected mode)
+
+```
+HF_WS_URL="$(terraform -chdir=aws output -raw ws_url)" \
+HF_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)" \
+HF_DEVICE_ID="amaterasu-01" \
+HF_DEVICE_BOOTSTRAP_SECRET="$(terraform -chdir=aws output -raw device_bootstrap_secret)" \
+npm start
+```
+
+With no `HF_WS_URL`/`HF_HTTP_API_URL` the app runs in local demo mode (window
+buttons, saves locally) — still no listener. Open the control page at the
+`app_url` output. See `aws/P5-AMATERASU-RUNBOOK.md` for the Windows end-to-end.
+
+## Teardown
+
+```
+terraform -chdir=aws destroy -var-file=poc.tfvars
+```
+
+Removes every tagged resource (the bucket is `force_destroy`; the KMS key has a
+7-day deletion window). **Rollback** of the POC is this destroy — the stack is
+net-new and modifies nothing pre-existing.
+
+## Security / repo hygiene
+
+- Public repo. **No** company identifiers, account IDs, tenant/Twilio IDs,
+  bucket/table names, `*.tfvars`/state/plans, secrets, media, or bearer/presigned
+  URLs are committed (see `.gitignore`). Company values are Terraform variables
+  from an uncommitted tfvars.
+- Server-side secrets (token signing, device bootstrap, browser login key) are
+  generated by Terraform and live only in Lambda env + local state. The desktop
+  holds no static AWS credentials; the browser holds only short-lived tokens.
+- Terraform state is local and gitignored; it contains secrets — protect it.
+
+## Future work
+
+Not in this POC (named, not scheduled): crash recovery of in-flight media; 120 s
+capture leases and >120 s outage pause; 30 s segmentation / journal / encrypted
+spool / manifests; device enrollment, corporate SSO and pairing; Twilio call-audio
++ Flex plugin + webhook reconciliation; the company pipeline-table adapter;
+load/scale qualification; observability/alarms; code-signing/Intune. The scalable
+architecture supports these; full requirements live in the implementation spec.
