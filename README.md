@@ -72,8 +72,9 @@ but your configured account / us-east-1. Every resource is tagged `project=fleet
 pay-per-request, no reserved capacity.
 
 Outputs (read with `terraform output`): `ws_url`, `http_api_url`, `app_url`
-(sensitive — includes the browser login key), `device_bootstrap_secret`
-(sensitive), `media_bucket`, `control_table`.
+(sensitive — includes the browser login key), `device_enrollment` (sensitive —
+a `{ deviceId: secret }` map; each enrolled device has its own secret),
+`media_bucket`, `control_table`.
 
 ### Prove the control path (synthetic device, no UI)
 
@@ -87,11 +88,16 @@ authorization denial. Prints `CURL JOURNEY PASS`.
 
 ### Run the real desktop (connected mode)
 
+Each device has its own enrollment secret (there is no single `device_bootstrap_secret`).
+Select it for your `FR_DEVICE_ID` and inject it privately — the helper fails closed if
+the device isn't enrolled and never prints the secret:
+
 ```
-FR_WS_URL="$(terraform -chdir=aws output -raw ws_url)" \
-FR_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)" \
-FR_DEVICE_ID="amaterasu-01" \
-FR_DEVICE_BOOTSTRAP_SECRET="$(terraform -chdir=aws output -raw device_bootstrap_secret)" \
+export FR_WS_URL="$(terraform -chdir=aws output -raw ws_url)"
+export FR_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)"
+export FR_DEVICE_ID="amaterasu-01"
+# From the enrollment map in local state (or drop --from-terraform to read SSM):
+export FR_DEVICE_BOOTSTRAP_SECRET="$(aws/scripts/device-secret.sh "$FR_DEVICE_ID" --from-terraform)"
 npm start
 ```
 
