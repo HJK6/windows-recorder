@@ -13,6 +13,15 @@ const { createWsClient } = require('./ws-client');
 const { createUploadClient } = require('./upload');
 
 const config = loadConfig();
+
+// P5 synthetic capture (Amaterasu): Chromium fake media — a silent, synthetic
+// screen + mic with no real content or sound, and auto-accepted capture prompts.
+// Opt-in via HF_FAKE_MEDIA=1; never on in a normal run.
+if (/^(1|true|yes)$/i.test(process.env.HF_FAKE_MEDIA || '')) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+}
+
 const events = new EventEmitter();
 const documentsDir = () => app.getPath('documents');
 let mainWindow = null;

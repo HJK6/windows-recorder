@@ -23,15 +23,39 @@ terraform -chdir=aws output -raw device_bootstrap_secret   # sensitive
 terraform -chdir=aws output -raw app_url                   # sensitive (has ?k=)
 ```
 
-## 2. Launch the desktop (connected mode)
+## 2. Launch the desktop (connected mode, SESSION 1, synthetic media)
+
+Capture needs the **interactive session (session 1)** — a process started in
+session 0 captures a blank frame. Launch via an **interactive-token scheduled
+task** (the `Agent Open Model` pattern in `machine_amaterasu.md`), from WSL, so
+the GUI runs in the operator's console session. Use **Chromium fake media** so
+the screen + mic are synthetic and silent (no real content/sound):
+
+Env for the run:
 ```
-set HF_WS_URL=<ws_url>
-set HF_HTTP_API_URL=<http_api_url>
-set HF_DEVICE_ID=amaterasu-01
-set HF_DEVICE_BOOTSTRAP_SECRET=<device_bootstrap_secret>
-npm start
+HF_WS_URL=<ws_url>
+HF_HTTP_API_URL=<http_api_url>
+HF_DEVICE_ID=amaterasu-01
+HF_DEVICE_BOOTSTRAP_SECRET=<device_bootstrap_secret>
+HF_FAKE_MEDIA=1            # Chromium --use-fake-device-for-media-stream + --use-fake-ui-for-media-stream
 ```
-Expect the window to show connection ONLINE (welcome received).
+
+Launch (one of):
+- **Interactive-token task (preferred).** Register a one-shot task that runs a
+  `.cmd` wrapper which `set`s the env above and runs `npm start` (Windows-native
+  Electron), with an interactive token / `RunLevel=Highest`, then `schtasks /run`
+  it so it lands in session 1. Mirror the registrar used for `Agent Open Model` /
+  `TriforceInteropKeeper` (RunLevel=Highest minted an interactive token). Keep the
+  run to minutes; stop the task and close the app when done.
+- **Operator-run.** The operator starts it from the console session with the env
+  above.
+
+**Execution options for this lane:** either (a) the lead spawns a Claude seat on
+`--host amaterasu` to run this runbook with the deployed endpoints (device work on
+the wired host), or (b) the operator runs it. Coordinate which with the front desk.
+
+Expect the window to show connection ONLINE (welcome received). With `HF_FAKE_MEDIA`
+the capture is a synthetic test pattern + silent mic.
 
 ## 3. Proof 1 — start/pause/resume/stop with applied acks
 Open `app_url` in a browser. Click Start → the Amaterasu window begins real
