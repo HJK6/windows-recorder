@@ -17,7 +17,7 @@ const recordingStore = require('../../src/main/recording-store');
 app.commandLine.appendSwitch('disable-dev-shm-usage');
 app.disableHardwareAcceleration();
 
-const DOCS = process.env.HF_SAVE_DOCS || os.tmpdir();
+const DOCS = process.env.FR_SAVE_DOCS || os.tmpdir();
 
 app.whenReady().then(() => {
   ipcMain.on('recorder:stopped', async (_e, { buffer: bytes, meta }) => {
@@ -33,7 +33,7 @@ app.whenReady().then(() => {
       setTimeout(() => app.exit(1), 150);
     }
   });
-  // Stub the rest of the preload's channels so window.hf calls don't reject.
+  // Stub the rest of the preload's channels so window.fleet calls don't reject.
   ipcMain.handle('get-output-dir', () => recordingStore.outputDir(DOCS));
   ipcMain.handle('reveal-file', () => {});
   ipcMain.handle('open-mic-privacy', () => {});

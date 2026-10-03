@@ -72,5 +72,5 @@
 
   const api = { sign, verify, hasScope, b64url };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (typeof window !== 'undefined') window.HFJwt = api;
+  if (typeof window !== 'undefined') window.FleetJwt = api;
 })();

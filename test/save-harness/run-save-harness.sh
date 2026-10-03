@@ -6,7 +6,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DOCS="$(mktemp -d)"
 LOG="$(mktemp)"
-export HF_SAVE_DOCS="$DOCS"
+export FR_SAVE_DOCS="$DOCS"
 cleanup() { rm -rf "$DOCS" "$LOG"; }
 trap cleanup EXIT
 

@@ -88,14 +88,14 @@ authorization denial. Prints `CURL JOURNEY PASS`.
 ### Run the real desktop (connected mode)
 
 ```
-HF_WS_URL="$(terraform -chdir=aws output -raw ws_url)" \
-HF_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)" \
-HF_DEVICE_ID="amaterasu-01" \
-HF_DEVICE_BOOTSTRAP_SECRET="$(terraform -chdir=aws output -raw device_bootstrap_secret)" \
+FR_WS_URL="$(terraform -chdir=aws output -raw ws_url)" \
+FR_HTTP_API_URL="$(terraform -chdir=aws output -raw http_api_url)" \
+FR_DEVICE_ID="amaterasu-01" \
+FR_DEVICE_BOOTSTRAP_SECRET="$(terraform -chdir=aws output -raw device_bootstrap_secret)" \
 npm start
 ```
 
-With no `HF_WS_URL`/`HF_HTTP_API_URL` the app runs in local demo mode (window
+With no `FR_WS_URL`/`FR_HTTP_API_URL` the app runs in local demo mode (window
 buttons, saves locally) — still no listener. Open the control page at the
 `app_url` output. See `aws/P5-AMATERASU-RUNBOOK.md` for the Windows end-to-end.
 

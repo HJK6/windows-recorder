@@ -8,7 +8,7 @@
  *
  * It uploads a small synthetic buffer on stop (no real screen/mic here).
  *
- * Env: HF_WS_URL, HF_HTTP_API_URL, HF_DEVICE_ID, HF_DEVICE_BOOTSTRAP_SECRET.
+ * Env: FR_WS_URL, FR_HTTP_API_URL, FR_DEVICE_ID, FR_DEVICE_BOOTSTRAP_SECRET.
  */
 
 const crypto = require('node:crypto');
@@ -17,13 +17,13 @@ const { createMockIdentity } = require('../../src/main/identity');
 const { createWsClient } = require('../../src/main/ws-client');
 const { createUploadClient } = require('../../src/main/upload');
 
-const wsUrl = process.env.HF_WS_URL;
-const httpApiUrl = process.env.HF_HTTP_API_URL;
-const deviceId = process.env.HF_DEVICE_ID || 'poc-fake-device';
-const bootstrapSecret = process.env.HF_DEVICE_BOOTSTRAP_SECRET;
+const wsUrl = process.env.FR_WS_URL;
+const httpApiUrl = process.env.FR_HTTP_API_URL;
+const deviceId = process.env.FR_DEVICE_ID || 'poc-fake-device';
+const bootstrapSecret = process.env.FR_DEVICE_BOOTSTRAP_SECRET;
 
 if (!wsUrl || !httpApiUrl || !bootstrapSecret) {
-  console.error('set HF_WS_URL, HF_HTTP_API_URL, HF_DEVICE_BOOTSTRAP_SECRET');
+  console.error('set FR_WS_URL, FR_HTTP_API_URL, FR_DEVICE_BOOTSTRAP_SECRET');
   process.exit(2);
 }
 

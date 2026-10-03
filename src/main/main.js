@@ -16,8 +16,8 @@ const config = loadConfig();
 
 // P5 synthetic capture (Amaterasu): Chromium fake media — a silent, synthetic
 // screen + mic with no real content or sound, and auto-accepted capture prompts.
-// Opt-in via HF_FAKE_MEDIA=1; never on in a normal run.
-if (/^(1|true|yes)$/i.test(process.env.HF_FAKE_MEDIA || '')) {
+// Opt-in via FR_FAKE_MEDIA=1; never on in a normal run.
+if (/^(1|true|yes)$/i.test(process.env.FR_FAKE_MEDIA || '')) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 }
@@ -164,7 +164,7 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   rendererReady = false;
-  win.hfReady = win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html')).then(() => {
+  win.readyPromise = win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html')).then(() => {
     rendererReady = true;
     publishState();
   });
@@ -207,7 +207,7 @@ if (!app.requestSingleInstanceLock()) {
     wireCapturePermissions(session.defaultSession, desktopCapturer);
     wireIpc();
     mainWindow = createWindow();
-    await mainWindow.hfReady;
+    await mainWindow.readyPromise;
 
     if (config.connected) {
       wsClient = createWsClient({

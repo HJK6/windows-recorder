@@ -33,11 +33,11 @@ the screen + mic are synthetic and silent (no real content/sound):
 
 Env for the run:
 ```
-HF_WS_URL=<ws_url>
-HF_HTTP_API_URL=<http_api_url>
-HF_DEVICE_ID=amaterasu-01
-HF_DEVICE_BOOTSTRAP_SECRET=<device_bootstrap_secret>
-HF_FAKE_MEDIA=1            # Chromium --use-fake-device-for-media-stream + --use-fake-ui-for-media-stream
+FR_WS_URL=<ws_url>
+FR_HTTP_API_URL=<http_api_url>
+FR_DEVICE_ID=amaterasu-01
+FR_DEVICE_BOOTSTRAP_SECRET=<device_bootstrap_secret>
+FR_FAKE_MEDIA=1            # Chromium --use-fake-device-for-media-stream + --use-fake-ui-for-media-stream
 ```
 
 Launch (one of):
@@ -54,7 +54,7 @@ Launch (one of):
 `--host amaterasu` to run this runbook with the deployed endpoints (device work on
 the wired host), or (b) the operator runs it. Coordinate which with the front desk.
 
-Expect the window to show connection ONLINE (welcome received). With `HF_FAKE_MEDIA`
+Expect the window to show connection ONLINE (welcome received). With `FR_FAKE_MEDIA`
 the capture is a synthetic test pattern + silent mic.
 
 ## 3. Proof 1 — start/pause/resume/stop with applied acks
@@ -64,7 +64,7 @@ Pause/Resume/Stop; each confirmed state must come from the ack (page never shows
 a state optimistically). Capture screenshots of page + window at each step.
 
 ## 4. Proof 2 — authorization denial
-- Device side: relaunch with a wrong `HF_DEVICE_BOOTSTRAP_SECRET` → device-token
+- Device side: relaunch with a wrong `FR_DEVICE_BOOTSTRAP_SECRET` → device-token
   request returns 401; the WS `$connect` is refused; window stays OFFLINE.
 - Browser side: paste a garbage token into the page's override field → control
   calls return 401. Record both.
@@ -73,8 +73,8 @@ a state optimistically). Capture screenshots of page + window at each step.
 While RECORDING, drop egress briefly, e.g. block the endpoint for ~20 s:
 ```
 # PowerShell (admin), outbound block to API Gateway, then remove it:
-New-NetFirewallRule -DisplayName hf-poc-drop -Direction Outbound -Action Block -RemoteAddress <api-ip-or-range>
-Start-Sleep 20; Remove-NetFirewallRule -DisplayName hf-poc-drop
+New-NetFirewallRule -DisplayName fleet-poc-drop -Direction Outbound -Action Block -RemoteAddress <api-ip-or-range>
+Start-Sleep 20; Remove-NetFirewallRule -DisplayName fleet-poc-drop
 ```
 Expect: capture continues through the drop; on restore the client reconnects and
 re-acks the SAME recordingId; the encoder is NOT restarted; exactly one recording

@@ -1,10 +1,10 @@
 output "ws_url" {
-  description = "Outbound WebSocket control endpoint for the desktop (HF_WS_URL)."
+  description = "Outbound WebSocket control endpoint for the desktop (FR_WS_URL)."
   value       = "wss://${aws_apigatewayv2_api.ws.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_apigatewayv2_stage.ws.name}"
 }
 
 output "http_api_url" {
-  description = "HTTP API base for browser control + device token + upload (HF_HTTP_API_URL)."
+  description = "HTTP API base for browser control + device token + upload (FR_HTTP_API_URL)."
   value       = aws_apigatewayv2_api.http.api_endpoint
 }
 
@@ -21,7 +21,7 @@ output "browser_login_key" {
 }
 
 output "device_enrollment" {
-  description = "Per-device enrollment map { deviceId: secret }. Each device uses its own secret for HF_DEVICE_BOOTSTRAP_SECRET."
+  description = "Per-device enrollment map { deviceId: secret }. Each device uses its own secret for FR_DEVICE_BOOTSTRAP_SECRET."
   value       = local.device_enrollment
   sensitive   = true
 }

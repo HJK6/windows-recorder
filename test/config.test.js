@@ -15,8 +15,8 @@ test('no endpoints configured => local demo mode, no listener, no channel', () =
 
 test('WS + HTTP endpoints => connected mode with derived token endpoint', () => {
   const c = loadConfig({
-    HF_WS_URL: 'wss://abc.execute-api.us-east-1.amazonaws.com/poc',
-    HF_HTTP_API_URL: 'https://def.execute-api.us-east-1.amazonaws.com',
+    FR_WS_URL: 'wss://abc.execute-api.us-east-1.amazonaws.com/poc',
+    FR_HTTP_API_URL: 'https://def.execute-api.us-east-1.amazonaws.com',
   });
   assert.equal(c.connected, true);
   assert.equal(c.demoMode, false);
@@ -25,11 +25,11 @@ test('WS + HTTP endpoints => connected mode with derived token endpoint', () => 
 
 test('token endpoint and enrollment material come from the environment, never defaults in the build', () => {
   const c = loadConfig({
-    HF_WS_URL: 'wss://x/poc',
-    HF_HTTP_API_URL: 'https://y',
-    HF_TOKEN_ENDPOINT: 'https://y/custom/token',
-    HF_DEVICE_ID: 'amaterasu-01',
-    HF_DEVICE_BOOTSTRAP_SECRET: 'runtime-only-secret',
+    FR_WS_URL: 'wss://x/poc',
+    FR_HTTP_API_URL: 'https://y',
+    FR_TOKEN_ENDPOINT: 'https://y/custom/token',
+    FR_DEVICE_ID: 'amaterasu-01',
+    FR_DEVICE_BOOTSTRAP_SECRET: 'runtime-only-secret',
   });
   assert.equal(c.tokenEndpoint, 'https://y/custom/token');
   assert.equal(c.deviceId, 'amaterasu-01');

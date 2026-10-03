@@ -23,7 +23,7 @@ app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-dev-shm-usage');
 app.disableHardwareAcceleration();
 
-const OUT = process.env.HF_SMOKE_OUT || path.join(app.getPath('temp'), 'hf-smoke.webm');
+const OUT = process.env.FR_SMOKE_OUT || path.join(app.getPath('temp'), 'hf-smoke.webm');
 
 app.whenReady().then(() => {
   // Real production permission + display-media wiring.

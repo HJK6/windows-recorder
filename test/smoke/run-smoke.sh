@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ELECTRON="$ROOT/node_modules/.bin/electron"
 OUTDIR="$(mktemp -d)"
 OUT="$OUTDIR/hf-smoke.webm"
-export HF_SMOKE_OUT="$OUT"
+export FR_SMOKE_OUT="$OUT"
 
 cleanup() { rm -rf "$OUTDIR"; }
 trap cleanup EXIT
